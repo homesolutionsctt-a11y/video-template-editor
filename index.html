@@ -241,6 +241,50 @@ header h1 { font-size: 17px; font-weight: 700; }
 }
 .gcard-dl:hover { background: rgba(34,197,94,.28); }
 
+/* ── Toggle switch ── */
+.toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+.toggle-slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background: var(--border); border-radius: 20px; transition: .2s;
+}
+.toggle-slider::before {
+  content: ""; position: absolute; height: 14px; width: 14px;
+  left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: .2s;
+}
+.toggle input:checked + .toggle-slider { background: var(--accent); }
+.toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+/* ── Painel de legendas ── */
+.leg-panel {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 11px 13px; margin-bottom: 10px;
+}
+.leg-row { display: flex; align-items: center; justify-content: space-between; }
+.leg-label { font-size: 12px; font-weight: 600; }
+.leg-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+#legSettings { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.leg-hint {
+  font-size: 10px; color: var(--muted); background: rgba(108,99,255,.07);
+  border: 1px solid rgba(108,99,255,.18); border-radius: 6px; padding: 7px 9px;
+  line-height: 1.6;
+}
+.leg-hint a { color: var(--accent); text-decoration: none; }
+.leg-hint a:hover { text-decoration: underline; }
+.field select {
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--text); padding: 6px 9px; border-radius: 6px;
+  font-size: 12px; width: 100%; cursor: pointer;
+}
+.field select:focus { outline: none; border-color: var(--accent); }
+.srt-drop {
+  border: 2px dashed var(--border); border-radius: 8px;
+  padding: 10px; text-align: center; cursor: pointer;
+  color: var(--muted); font-size: 11px; transition: all .2s;
+}
+.srt-drop:hover, .srt-drop.over { border-color: var(--accent); color: var(--text); }
+.srt-loaded { font-size: 11px; color: var(--green); margin-top: 4px; }
+
 .info { font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.5; }
 
 /* ── Canvas area ── */
@@ -348,6 +392,70 @@ header h1 { font-size: 17px; font-weight: 700; }
           <span class="step-title">Processamento &amp; Download</span>
         </div>
         <div class="step-body">
+
+          <!-- ── Legendas automáticas ── -->
+          <div class="leg-panel">
+            <div class="leg-row">
+              <div>
+                <div class="leg-label">&#9998; Legendas autom&aacute;ticas</div>
+                <div class="leg-sub">Transcri&ccedil;&atilde;o via Whisper AI</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="legEnable" onchange="onLegToggle(this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div id="legSettings" style="display:none">
+              <p class="leg-hint">
+                Insira sua chave da <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI API</a>.
+                O &aacute;udio &eacute; enviado ao Whisper para transcri&ccedil;&atilde;o. Custo: ~$0,006/min.
+              </p>
+              <div class="field">
+                <label>Chave OpenAI API</label>
+                <input type="password" id="legApiKey" placeholder="sk-…" autocomplete="off" oninput="saveApiKey()">
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>Idioma</label>
+                  <select id="legLang">
+                    <option value="">Autom&aacute;tico</option>
+                    <option value="pt" selected>Portugu&ecirc;s</option>
+                    <option value="en">English</option>
+                    <option value="es">Espa&ntilde;ol</option>
+                    <option value="fr">Fran&ccedil;ais</option>
+                    <option value="de">Deutsch</option>
+                    <option value="it">Italiano</option>
+                    <option value="ja">&#26085;&#26412;&#35486;</option>
+                    <option value="zh">&#20013;&#25991;</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Posi&ccedil;&atilde;o</label>
+                  <select id="legPos">
+                    <option value="bottom">Inferior</option>
+                    <option value="top">Superior</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label>Tam. fonte (px)</label>
+                  <input type="number" id="legSize" value="52" min="20" max="120">
+                </div>
+                <div class="field">
+                  <label>Cor do texto</label>
+                  <input type="color" id="legColor" value="#ffffff">
+                </div>
+              </div>
+              <p class="info">Ou importe um <strong>.srt</strong> (substitui a transcri&ccedil;&atilde;o):</p>
+              <div class="srt-drop" id="srtDrop" onclick="document.getElementById('srtInput').click()">
+                Arraste ou clique para selecionar .srt / .vtt
+                <input type="file" id="srtInput" accept=".srt,.vtt" style="display:none">
+              </div>
+              <div class="srt-loaded" id="srtLoaded" style="display:none"></div>
+            </div>
+          </div>
+
           <div class="vlist" id="procList"></div>
           <div class="prog-wrap" id="progWrap" style="display:none">
             <div class="prog-bar" id="progBar"></div>
@@ -735,7 +843,7 @@ async function ensureMuxer() {
 // PROCESSING  —  WebCodecs + mp4-muxer
 // Produz MP4 padrão (moov no início) → compatível com WhatsApp / iOS / Android
 // ─────────────────────────────────────────────────────────────────────────────
-async function processOne(vid) {
+async function processOne(vid, subtitles = null) {
   const { x: szX, y: szY, w: szW, h: szH } = S.sz;
   const W = S.imgW, H = S.imgH;
   const FPS = 30;
@@ -917,6 +1025,17 @@ async function processOne(vid) {
         procCtx.restore();
       }
 
+      // Legenda (queimada no frame)
+      if (subtitles && subtitles.length) {
+        const sub = subtitles.find(s => meta.mediaTime >= s.start && meta.mediaTime <= s.end);
+        if (sub && sub.text) {
+          const fSize = parseInt(document.getElementById('legSize').value) || 52;
+          const fColor = document.getElementById('legColor').value || '#ffffff';
+          const fPos   = document.getElementById('legPos').value   || 'bottom';
+          drawCaption(procCtx, sub.text, W, H, fPos, fSize, fColor);
+        }
+      }
+
       // Encoda como VideoFrame com timestamp preciso
       const tsUs = Math.round(meta.mediaTime * 1_000_000);
       const durUs = Math.round(1_000_000 / FPS);
@@ -995,14 +1114,38 @@ async function startProcessing() {
   addLog('Pronto! Formato: MP4 H.264 + AAC — compatível com WhatsApp / iOS / Android', 'ok');
   edCanvas.style.display = 'none';
 
+  const legEnabled = document.getElementById('legEnable').checked;
+  // Se carregou SRT manual, usa para todos os vídeos
+  const globalSubs = (legEnabled && _srtSegments && _srtSegments.length) ? _srtSegments : null;
+  if (globalSubs) addLog(`Legendas: usando ${globalSubs.length} segmentos do arquivo SRT`, 'ok');
+
   for (let i = 0; i < S.videos.length; i++) {
     const vid = S.videos[i];
     setStatus(i, 'processing');
     addLog('[' + (i + 1) + '/' + S.videos.length + '] ' + vid.name);
     document.getElementById('progBar').style.width = '0%';
 
+    // Transcição via Whisper (se ativado e sem SRT manual)
+    let subtitles = globalSubs;
+    if (legEnabled && !globalSubs) {
+      const apiKey = document.getElementById('legApiKey').value.trim();
+      if (!apiKey) {
+        addLog('⚠ Legendas: chave API não informada — processando sem legenda', 'warn');
+      } else {
+        addLog('Transcrevendo áudio com Whisper…', 'warn');
+        try {
+          const lang = document.getElementById('legLang').value;
+          subtitles = await transcribeAudio(vid.file, apiKey, lang);
+          addLog(`✓ ${subtitles.length} segmentos transcritos`, 'ok');
+        } catch (te) {
+          addLog('⚠ Transcrição falhou: ' + te.message + ' — sem legenda', 'warn');
+          subtitles = null;
+        }
+      }
+    }
+
     try {
-      const { url, ext } = await processOne(vid);
+      const { url, ext } = await processOne(vid, subtitles);
       const base = vid.name.replace(/\.[^.]+$/, '');
       addDownload(url, base + '_template.' + ext);
       setStatus(i, 'done');
@@ -1138,6 +1281,185 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SUBTITLES / CAPTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+let _srtSegments = null; // segmentos carregados manualmente via .srt
+
+function onLegToggle(checked) {
+  document.getElementById('legSettings').style.display = checked ? 'flex' : 'none';
+}
+
+// Persiste chave API entre sessões
+function saveApiKey() {
+  try {
+    const k = document.getElementById('legApiKey').value;
+    if (k) localStorage.setItem('_oai_k', k);
+    else   localStorage.removeItem('_oai_k');
+  } catch (_) {}
+}
+try {
+  const saved = localStorage.getItem('_oai_k');
+  if (saved) document.getElementById('legApiKey').value = saved;
+} catch (_) {}
+
+// Upload de arquivo .srt / .vtt
+setupDrop('srtDrop', files => {
+  const f = files.find(f => /\.(srt|vtt)$/i.test(f.name));
+  if (f) loadSRTFile(f);
+});
+document.getElementById('srtInput').addEventListener('change', e => {
+  if (e.target.files[0]) loadSRTFile(e.target.files[0]);
+});
+
+function loadSRTFile(file) {
+  const reader = new FileReader();
+  reader.onload = ev => {
+    _srtSegments = parseSRT(ev.target.result);
+    const el = document.getElementById('srtLoaded');
+    el.style.display  = 'block';
+    el.textContent = `✓ ${_srtSegments.length} legendas carregadas — "${file.name}"`;
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function parseSRT(text) {
+  return text.trim().split(/\r?\n\r?\n/).map(block => {
+    const lines = block.trim().split(/\r?\n/);
+    if (lines.length < 3) return null;
+    // Suporta SRT (vírgula) e VTT (ponto) como separador de milissegundos
+    const m = lines[1].match(
+      /(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})/
+    );
+    if (!m) return null;
+    const start = +m[1]*3600 + +m[2]*60 + +m[3] + +m[4]/1000;
+    const end   = +m[5]*3600 + +m[6]*60 + +m[7] + +m[8]/1000;
+    const text  = lines.slice(2).join(' ').replace(/<[^>]*>/g, '').trim();
+    return { start, end, text };
+  }).filter(Boolean);
+}
+
+// ── Extrai áudio do vídeo para envio à API ────────────────────────────────────
+async function extractAudioBlob(file) {
+  // Arquivos ≤ 24 MB: envia o próprio vídeo (Whisper aceita MP4/MOV)
+  if (file.size <= 24 * 1024 * 1024) return file;
+
+  // Arquivos maiores: extrai áudio como WAV 16 kHz mono
+  addLog('Arquivo > 24 MB — extraindo áudio para transcrição…', 'warn');
+  const audioCtx = new AudioContext({ sampleRate: 16000 });
+  const decoded  = await audioCtx.decodeAudioData(await file.arrayBuffer());
+  await audioCtx.close();
+
+  const nCh   = decoded.numberOfChannels;
+  const n     = decoded.length;
+  const mono  = new Float32Array(n);
+  for (let c = 0; c < nCh; c++) {
+    const ch = decoded.getChannelData(c);
+    for (let i = 0; i < n; i++) mono[i] += ch[i] / nCh;
+  }
+  return floatToWAV(mono, 16000);
+}
+
+function floatToWAV(samples, sr) {
+  const n = samples.length, bps = 2;
+  const buf  = new ArrayBuffer(44 + n * bps);
+  const view = new DataView(buf);
+  const ws = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+  ws(0, 'RIFF'); view.setUint32(4, 36 + n * bps, true); ws(8, 'WAVE');
+  ws(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); view.setUint32(24, sr, true);
+  view.setUint32(28, sr * bps, true); view.setUint16(32, bps, true);
+  view.setUint16(34, 16, true);
+  ws(36, 'data'); view.setUint32(40, n * bps, true);
+  let off = 44;
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 32768 : s * 32767, true);
+    off += 2;
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+// ── Envia áudio ao Whisper e retorna segmentos [{start,end,text}] ─────────────
+async function transcribeAudio(file, apiKey, lang) {
+  const audioBlob = await extractAudioBlob(file);
+  const form = new FormData();
+  form.append('file', audioBlob, 'audio.wav');
+  form.append('model', 'whisper-1');
+  form.append('response_format', 'verbose_json');
+  form.append('timestamp_granularities[]', 'segment');
+  if (lang) form.append('language', lang);
+
+  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + apiKey },
+    body: form
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || 'HTTP ' + res.status);
+  }
+  const data = await res.json();
+  return (data.segments || []).map(s => ({
+    start: s.start,
+    end:   s.end,
+    text:  s.text.trim()
+  }));
+}
+
+// ── Renderiza legenda queimada no canvas ──────────────────────────────────────
+function drawCaption(ctx, text, W, H, pos, fontSize, color) {
+  if (!text) return;
+  ctx.save();
+
+  const pad = Math.round(fontSize * 0.55);
+  const lh  = Math.round(fontSize * 1.35);
+  const maxW = W - pad * 6;
+
+  ctx.font = `bold ${fontSize}px 'Segoe UI', Arial, sans-serif`;
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'top';
+
+  // Quebra de linha automática
+  const words = text.split(' ');
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const test = cur ? cur + ' ' + w : w;
+    if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; }
+    else cur = test;
+  }
+  if (cur) lines.push(cur);
+
+  const realW = Math.max(...lines.map(l => ctx.measureText(l).width));
+  const boxW  = Math.min(realW + pad * 3, W - pad * 2);
+  const boxH  = lines.length * lh + pad * 2;
+  const bx    = (W - boxW) / 2;
+  const by    = pos === 'top'
+    ? Math.round(H * 0.04)
+    : Math.round(H - boxH - H * 0.035);
+
+  // Fundo semitransparente
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(bx, by, boxW, boxH, Math.round(fontSize * 0.28));
+    ctx.fill();
+  } else {
+    ctx.fillRect(bx, by, boxW, boxH);
+  }
+
+  // Texto com sombra
+  ctx.fillStyle   = color || '#ffffff';
+  ctx.shadowColor = 'rgba(0,0,0,0.8)';
+  ctx.shadowBlur  = Math.round(fontSize * 0.12);
+  lines.forEach((ln, i) => {
+    ctx.fillText(ln, W / 2, by + pad + i * lh);
+  });
+
+  ctx.restore();
+}
+
 function setupDrop(id, cb) {
   const el = document.getElementById(id);
   el.addEventListener('dragover',  e => { e.preventDefault(); el.classList.add('over'); });
@@ -1199,6 +1521,13 @@ function resetAll() {
   document.getElementById('galleryPanel').style.display = 'none';
   document.getElementById('galleryCount').textContent   = '0 vídeos';
   completedVideos.length = 0;
+
+  // Legendas
+  _srtSegments = null;
+  document.getElementById('legEnable').checked = false;
+  document.getElementById('legSettings').style.display = 'none';
+  document.getElementById('srtLoaded').style.display   = 'none';
+  document.getElementById('srtInput').value = '';
 
   const pb = document.getElementById('procBtn');
   pb.disabled    = false;
