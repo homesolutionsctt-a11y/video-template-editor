@@ -406,13 +406,20 @@ header h1 { font-size: 17px; font-weight: 700; }
               </label>
             </div>
             <div id="legSettings" style="display:none">
-              <p class="leg-hint">
-                Insira sua chave da <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI API</a>.
-                O &aacute;udio &eacute; enviado ao Whisper para transcri&ccedil;&atilde;o. Custo: ~$0,006/min.
+              <div class="field">
+                <label>Provedor</label>
+                <select id="legProvider" onchange="onProviderChange()">
+                  <option value="groq">Groq (gratuito)</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </div>
+              <p class="leg-hint" id="legHint">
+                Crie uma conta gr&aacute;tis em <a href="https://console.groq.com/keys" target="_blank">console.groq.com</a>
+                &rarr; <strong>API Keys &rarr; Create API Key</strong>. Limite gratuito: 2&nbsp;h de &aacute;udio/dia.
               </p>
               <div class="field">
-                <label>Chave OpenAI API</label>
-                <input type="password" id="legApiKey" placeholder="sk-…" autocomplete="off" oninput="saveApiKey()">
+                <label id="legApiKeyLabel">Chave Groq API</label>
+                <input type="password" id="legApiKey" placeholder="gsk_…" autocomplete="off" oninput="saveApiKey()">
               </div>
               <div class="field-row">
                 <div class="field">
@@ -1290,18 +1297,49 @@ function onLegToggle(checked) {
   document.getElementById('legSettings').style.display = checked ? 'flex' : 'none';
 }
 
-// Persiste chave API entre sessões
+// Persiste chave API por provedor
 function saveApiKey() {
   try {
+    const provider = document.getElementById('legProvider').value;
     const k = document.getElementById('legApiKey').value;
-    if (k) localStorage.setItem('_oai_k', k);
-    else   localStorage.removeItem('_oai_k');
+    if (k) localStorage.setItem('_api_k_' + provider, k);
+    else   localStorage.removeItem('_api_k_' + provider);
   } catch (_) {}
 }
 try {
-  const saved = localStorage.getItem('_oai_k');
+  // Carrega a chave salva para o provedor padrão (Groq)
+  const saved = localStorage.getItem('_api_k_groq');
   if (saved) document.getElementById('legApiKey').value = saved;
 } catch (_) {}
+
+const _PROVIDER_CFG = {
+  groq: {
+    label:       'Chave Groq API',
+    placeholder: 'gsk_…',
+    hint:        'Crie uma conta grátis em <a href="https://console.groq.com/keys" target="_blank">console.groq.com</a> → <strong>API Keys → Create API Key</strong>. Limite gratuito: 2 h de áudio/dia.',
+    url:         'https://api.groq.com/openai/v1/audio/transcriptions',
+    model:       'whisper-large-v3-turbo'
+  },
+  openai: {
+    label:       'Chave OpenAI API',
+    placeholder: 'sk-…',
+    hint:        'Insira sua chave da <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI API</a>. Custo: ~$0,006/min de áudio.',
+    url:         'https://api.openai.com/v1/audio/transcriptions',
+    model:       'whisper-1'
+  }
+};
+
+function onProviderChange() {
+  const cfg = _PROVIDER_CFG[document.getElementById('legProvider').value] || _PROVIDER_CFG.groq;
+  document.getElementById('legApiKeyLabel').textContent = cfg.label;
+  document.getElementById('legApiKey').placeholder      = cfg.placeholder;
+  document.getElementById('legHint').innerHTML          = cfg.hint;
+  // Carrega chave salva para este provedor
+  try {
+    const saved = localStorage.getItem('_api_k_' + document.getElementById('legProvider').value);
+    document.getElementById('legApiKey').value = saved || '';
+  } catch (_) {}
+}
 
 // Upload de arquivo .srt / .vtt
 setupDrop('srtDrop', files => {
@@ -1383,14 +1421,20 @@ function floatToWAV(samples, sr) {
 // ── Envia áudio ao Whisper e retorna segmentos [{start,end,text}] ─────────────
 async function transcribeAudio(file, apiKey, lang) {
   const audioBlob = await extractAudioBlob(file);
+
+  const provider = document.getElementById('legProvider').value;
+  const cfg = _PROVIDER_CFG[provider] || _PROVIDER_CFG.groq;
+
   const form = new FormData();
   form.append('file', audioBlob, 'audio.wav');
-  form.append('model', 'whisper-1');
+  form.append('model', cfg.model);
   form.append('response_format', 'verbose_json');
   form.append('timestamp_granularities[]', 'segment');
   if (lang) form.append('language', lang);
 
-  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+  addLog('Provedor: ' + (provider === 'groq' ? 'Groq (whisper-large-v3-turbo)' : 'OpenAI (whisper-1)'));
+
+  const res = await fetch(cfg.url, {
     method: 'POST',
     headers: { 'Authorization': 'Bearer ' + apiKey },
     body: form
