@@ -1301,7 +1301,8 @@ function onLegToggle(checked) {
 function saveApiKey() {
   try {
     const provider = document.getElementById('legProvider').value;
-    const k = document.getElementById('legApiKey').value;
+    const k = document.getElementById('legApiKey').value.trim();
+    document.getElementById('legApiKey').value = k; // remove espaços visualmente
     if (k) localStorage.setItem('_api_k_' + provider, k);
     else   localStorage.removeItem('_api_k_' + provider);
   } catch (_) {}
