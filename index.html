@@ -406,22 +406,42 @@ header h1 { font-size: 17px; font-weight: 700; }
               </label>
             </div>
             <div id="legSettings" style="display:none">
+
+              <!-- Modo -->
               <div class="field">
-                <label>Provedor</label>
-                <select id="legProvider" onchange="onProviderChange()">
-                  <option value="groq">Groq (gratuito)</option>
-                  <option value="openai">OpenAI</option>
+                <label>Modo</label>
+                <select id="legMode" onchange="onLegModeChange()">
+                  <option value="fixed">Texto fixo (sem API)</option>
+                  <option value="api">Transcri&ccedil;&atilde;o autom&aacute;tica (API)</option>
+                  <option value="srt">Importar arquivo .SRT / .VTT</option>
                 </select>
               </div>
-              <p class="leg-hint" id="legHint">
-                Crie uma conta gr&aacute;tis em <a href="https://console.groq.com/keys" target="_blank">console.groq.com</a>
-                &rarr; <strong>API Keys &rarr; Create API Key</strong>. Limite gratuito: 2&nbsp;h de &aacute;udio/dia.
-              </p>
-              <div class="field">
-                <label id="legApiKeyLabel">Chave Groq API</label>
-                <input type="password" id="legApiKey" placeholder="gsk_…" autocomplete="off" oninput="saveApiKey()">
+
+              <!-- ── Texto fixo ── -->
+              <div id="legFixedSection">
+                <div class="field">
+                  <label>Texto da legenda</label>
+                  <input type="text" id="legFixedText" placeholder="Ex.: Siga @minha_conta &#128071;" autocomplete="off">
+                </div>
               </div>
-              <div class="field-row">
+
+              <!-- ── Transcrição automática (API) ── -->
+              <div id="legApiSection" style="display:none">
+                <div class="field">
+                  <label>Provedor</label>
+                  <select id="legProvider" onchange="onProviderChange()">
+                    <option value="groq">Groq (gratuito)</option>
+                    <option value="openai">OpenAI</option>
+                  </select>
+                </div>
+                <p class="leg-hint" id="legHint">
+                  Crie uma conta gr&aacute;tis em <a href="https://console.groq.com/keys" target="_blank">console.groq.com</a>
+                  &rarr; <strong>API Keys &rarr; Create API Key</strong>. Limite gratuito: 2&nbsp;h de &aacute;udio/dia.
+                </p>
+                <div class="field">
+                  <label id="legApiKeyLabel">Chave Groq API</label>
+                  <input type="password" id="legApiKey" placeholder="gsk_…" autocomplete="off" oninput="saveApiKey()">
+                </div>
                 <div class="field">
                   <label>Idioma</label>
                   <select id="legLang">
@@ -436,6 +456,19 @@ header h1 { font-size: 17px; font-weight: 700; }
                     <option value="zh">&#20013;&#25991;</option>
                   </select>
                 </div>
+              </div>
+
+              <!-- ── Arquivo SRT ── -->
+              <div id="legSrtSection" style="display:none">
+                <div class="srt-drop" id="srtDrop" onclick="document.getElementById('srtInput').click()">
+                  Arraste ou clique para selecionar .srt / .vtt
+                  <input type="file" id="srtInput" accept=".srt,.vtt" style="display:none">
+                </div>
+                <div class="srt-loaded" id="srtLoaded" style="display:none"></div>
+              </div>
+
+              <!-- ── Estilo (sempre visível) ── -->
+              <div class="field-row">
                 <div class="field">
                   <label>Posi&ccedil;&atilde;o</label>
                   <select id="legPos">
@@ -443,23 +476,16 @@ header h1 { font-size: 17px; font-weight: 700; }
                     <option value="top">Superior</option>
                   </select>
                 </div>
-              </div>
-              <div class="field-row">
                 <div class="field">
                   <label>Tam. fonte (px)</label>
                   <input type="number" id="legSize" value="52" min="20" max="120">
                 </div>
-                <div class="field">
-                  <label>Cor do texto</label>
-                  <input type="color" id="legColor" value="#ffffff">
-                </div>
               </div>
-              <p class="info">Ou importe um <strong>.srt</strong> (substitui a transcri&ccedil;&atilde;o):</p>
-              <div class="srt-drop" id="srtDrop" onclick="document.getElementById('srtInput').click()">
-                Arraste ou clique para selecionar .srt / .vtt
-                <input type="file" id="srtInput" accept=".srt,.vtt" style="display:none">
+              <div class="field">
+                <label>Cor do texto</label>
+                <input type="color" id="legColor" value="#ffffff">
               </div>
-              <div class="srt-loaded" id="srtLoaded" style="display:none"></div>
+
             </div>
           </div>
 
@@ -1122,9 +1148,26 @@ async function startProcessing() {
   edCanvas.style.display = 'none';
 
   const legEnabled = document.getElementById('legEnable').checked;
-  // Se carregou SRT manual, usa para todos os vídeos
-  const globalSubs = (legEnabled && _srtSegments && _srtSegments.length) ? _srtSegments : null;
-  if (globalSubs) addLog(`Legendas: usando ${globalSubs.length} segmentos do arquivo SRT`, 'ok');
+  const legMode    = legEnabled ? document.getElementById('legMode').value : 'off';
+
+  // Prepara legendas globais (texto fixo e SRT são iguais para todos os vídeos)
+  let globalSubs = null;
+  if (legMode === 'fixed') {
+    const txt = document.getElementById('legFixedText').value.trim();
+    if (txt) {
+      globalSubs = [{ start: 0, end: Infinity, text: txt }];
+      addLog('Legenda fixa: "' + txt + '"', 'ok');
+    } else {
+      addLog('⚠ Texto fixo vazio — processando sem legenda', 'warn');
+    }
+  } else if (legMode === 'srt') {
+    if (_srtSegments && _srtSegments.length) {
+      globalSubs = _srtSegments;
+      addLog(`Legendas: usando ${globalSubs.length} segmentos do arquivo SRT`, 'ok');
+    } else {
+      addLog('⚠ Nenhum arquivo .SRT carregado — processando sem legenda', 'warn');
+    }
+  }
 
   for (let i = 0; i < S.videos.length; i++) {
     const vid = S.videos[i];
@@ -1132,12 +1175,12 @@ async function startProcessing() {
     addLog('[' + (i + 1) + '/' + S.videos.length + '] ' + vid.name);
     document.getElementById('progBar').style.width = '0%';
 
-    // Transcição via Whisper (se ativado e sem SRT manual)
+    // Transcrição via API é por vídeo (cada um pode ter fala diferente)
     let subtitles = globalSubs;
-    if (legEnabled && !globalSubs) {
+    if (legMode === 'api') {
       const apiKey = document.getElementById('legApiKey').value.trim();
       if (!apiKey) {
-        addLog('⚠ Legendas: chave API não informada — processando sem legenda', 'warn');
+        addLog('⚠ Chave API não informada — processando sem legenda', 'warn');
       } else {
         addLog('Transcrevendo áudio com Whisper…', 'warn');
         try {
@@ -1295,6 +1338,13 @@ let _srtSegments = null; // segmentos carregados manualmente via .srt
 
 function onLegToggle(checked) {
   document.getElementById('legSettings').style.display = checked ? 'flex' : 'none';
+}
+
+function onLegModeChange() {
+  const mode = document.getElementById('legMode').value;
+  document.getElementById('legFixedSection').style.display = mode === 'fixed' ? 'block' : 'none';
+  document.getElementById('legApiSection').style.display   = mode === 'api'   ? 'flex'  : 'none';
+  document.getElementById('legSrtSection').style.display   = mode === 'srt'   ? 'block' : 'none';
 }
 
 // Persiste chave API por provedor
@@ -1569,10 +1619,15 @@ function resetAll() {
 
   // Legendas
   _srtSegments = null;
-  document.getElementById('legEnable').checked = false;
+  document.getElementById('legEnable').checked       = false;
   document.getElementById('legSettings').style.display = 'none';
-  document.getElementById('srtLoaded').style.display   = 'none';
-  document.getElementById('srtInput').value = '';
+  document.getElementById('legMode').value           = 'fixed';
+  document.getElementById('legFixedText').value      = '';
+  document.getElementById('legFixedSection').style.display = 'block';
+  document.getElementById('legApiSection').style.display   = 'none';
+  document.getElementById('legSrtSection').style.display   = 'none';
+  document.getElementById('srtLoaded').style.display = 'none';
+  document.getElementById('srtInput').value          = '';
 
   const pb = document.getElementById('procBtn');
   pb.disabled    = false;
