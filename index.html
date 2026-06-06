@@ -489,6 +489,31 @@ header h1 { font-size: 17px; font-weight: 700; }
             </div>
           </div>
 
+          <!-- ── Remover silêncios ── -->
+          <div class="leg-panel">
+            <div class="leg-row">
+              <div>
+                <div class="leg-label">&#9986; Remover sil&ecirc;ncios</div>
+                <div class="leg-sub">Jump cuts autom&aacute;ticos</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="silEnable" onchange="onSilToggle(this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div id="silSettings" style="display:none">
+              <div class="field">
+                <label>Sensibilidade</label>
+                <select id="silLevel">
+                  <option value="low">Suave &mdash; s&oacute; pausas longas (&gt;0,5s)</option>
+                  <option value="mid" selected>M&eacute;dia &mdash; recomendado (&gt;0,3s)</option>
+                  <option value="high">Agressiva &mdash; remove respiros (&gt;0,15s)</option>
+                </select>
+              </div>
+              <p class="info">Detecta pausas pelo volume do &aacute;udio e remove os trechos mudos. O v&iacute;deo de sa&iacute;da ser&aacute; mais curto.</p>
+            </div>
+          </div>
+
           <div class="vlist" id="procList"></div>
           <div class="prog-wrap" id="progWrap" style="display:none">
             <div class="prog-bar" id="progBar"></div>
@@ -876,7 +901,7 @@ async function ensureMuxer() {
 // PROCESSING  —  WebCodecs + mp4-muxer
 // Produz MP4 padrão (moov no início) → compatível com WhatsApp / iOS / Android
 // ─────────────────────────────────────────────────────────────────────────────
-async function processOne(vid, subtitles = null) {
+async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudio = null) {
   const { x: szX, y: szY, w: szW, h: szH } = S.sz;
   const W = S.imgW, H = S.imgH;
   const FPS = 30;
@@ -890,7 +915,7 @@ async function processOne(vid, subtitles = null) {
   const videoEl = document.createElement('video');
   videoEl.playsInline = true;
   videoEl.preload     = 'auto';
-  videoEl.muted       = false; // false → áudio flui pelo Web Audio
+  videoEl.muted       = !!preDecodedAudio; // mudo se usando áudio pré-decodificado
   videoEl.src         = URL.createObjectURL(vid.file);
 
   let audioCtx = null;
@@ -913,19 +938,22 @@ async function processOne(vid, subtitles = null) {
   const { Muxer, ArrayBufferTarget } = await ensureMuxer();
 
   // ── Web Audio: captura áudio sem emitir pelos alto-falantes ──────────────
+  // (ignorado quando áudio pré-decodificado está disponível)
   let audioTrackProcessor = null;
-  try {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
-    await audioCtx.resume();
-    const src = audioCtx.createMediaElementSource(videoEl);
-    const dst = audioCtx.createMediaStreamDestination();
-    src.connect(dst); // NÃO conecta ao audioCtx.destination → sem echo
-    const track = dst.stream.getAudioTracks()[0];
-    if (track) {
-      audioTrackProcessor = new MediaStreamTrackProcessor({ track });
+  if (!preDecodedAudio) {
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+      await audioCtx.resume();
+      const src = audioCtx.createMediaElementSource(videoEl);
+      const dst = audioCtx.createMediaStreamDestination();
+      src.connect(dst); // NÃO conecta ao audioCtx.destination → sem echo
+      const track = dst.stream.getAudioTracks()[0];
+      if (track) {
+        audioTrackProcessor = new MediaStreamTrackProcessor({ track });
+      }
+    } catch (e) {
+      addLog('Aviso: captura de áudio indisponível — ' + e.message, 'warn');
     }
-  } catch (e) {
-    addLog('Aviso: captura de áudio indisponível — ' + e.message, 'warn');
   }
 
   // ── mp4-muxer ─────────────────────────────────────────────────────────────
@@ -936,8 +964,12 @@ async function processOne(vid, subtitles = null) {
     firstTimestampBehavior: 'offset',
     fastStart: 'in-memory'   // ← moov no início = compatível com WhatsApp
   };
-  if (audioTrackProcessor) {
-    muxerCfg.audio = { codec: 'aac', numberOfChannels: 2, sampleRate: SAMPLE_RATE };
+  // Parâmetros de áudio (streaming ou pré-decodificado)
+  const _hasAudio = audioTrackProcessor || preDecodedAudio;
+  const _audNch   = preDecodedAudio ? Math.min(preDecodedAudio.numberOfChannels, 2) : 2;
+  const _audSR    = preDecodedAudio ? preDecodedAudio.sampleRate : SAMPLE_RATE;
+  if (_hasAudio) {
+    muxerCfg.audio = { codec: 'aac', numberOfChannels: _audNch, sampleRate: _audSR };
   }
   const muxer = new Muxer(muxerCfg);
 
@@ -980,15 +1012,15 @@ async function processOne(vid, subtitles = null) {
 
   // ── AudioEncoder (AAC) ────────────────────────────────────────────────────
   let audioEncoder = null;
-  if (audioTrackProcessor) {
+  if (_hasAudio) {
     audioEncoder = new AudioEncoder({
       output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
       error:  e => console.error('[AudioEncoder]', e)
     });
     audioEncoder.configure({
       codec:            'mp4a.40.2',
-      numberOfChannels: 2,
-      sampleRate:       SAMPLE_RATE,
+      numberOfChannels: _audNch,
+      sampleRate:       _audSR,
       bitrate:          128_000
     });
   }
@@ -1069,18 +1101,23 @@ async function processOne(vid, subtitles = null) {
         }
       }
 
-      // Encoda como VideoFrame com timestamp preciso
-      const tsUs = Math.round(meta.mediaTime * 1_000_000);
-      const durUs = Math.round(1_000_000 / FPS);
-      let vf;
-      try {
-        vf = new VideoFrame(procCanvas, { timestamp: tsUs, duration: durUs });
-        videoEncoder.encode(vf, { keyFrame: frameIndex % 60 === 0 });
-        vf.close();
-      } catch (e) {
-        try { if (vf) vf.close(); } catch (_) {}
+      // Encoda frame (com filtro de silêncio se ativo)
+      const _inKeep = !keepSegs || isInKeepSeg(meta.mediaTime, keepSegs);
+      if (_inKeep) {
+        const tsUs  = keepSegs
+          ? Math.round(getOutputTime(meta.mediaTime, keepSegs) * 1_000_000)
+          : Math.round(meta.mediaTime * 1_000_000);
+        const durUs = Math.round(1_000_000 / FPS);
+        let vf;
+        try {
+          vf = new VideoFrame(procCanvas, { timestamp: tsUs, duration: durUs });
+          videoEncoder.encode(vf, { keyFrame: frameIndex % 60 === 0 });
+          vf.close();
+        } catch (e) {
+          try { if (vf) vf.close(); } catch (_) {}
+        }
+        frameIndex++;
       }
-      frameIndex++;
 
       // Progresso
       const pct = videoEl.duration > 0 ? meta.mediaTime / videoEl.duration : 0;
@@ -1102,6 +1139,11 @@ async function processOne(vid, subtitles = null) {
   // ── Finaliza encoders e muxer ─────────────────────────────────────────────
   audioAbort.abort();
   await audioLoop;
+
+  // Áudio pré-decodificado (modo remoção de silêncios): encode após vídeo
+  if (preDecodedAudio && audioEncoder && keepSegs) {
+    await encodeAudioFromBuffer(preDecodedAudio, keepSegs, audioEncoder, _audSR);
+  }
 
   await videoEncoder.flush();
   videoEncoder.close();
@@ -1194,8 +1236,24 @@ async function startProcessing() {
       }
     }
 
+    // Remoção de silêncios (análise por vídeo)
+    let keepSegsForVideo = null;
+    let preDecodedAudio  = null;
+    if (document.getElementById('silEnable').checked) {
+      addLog('Analisando silêncios…', 'warn');
+      try {
+        const silResult = await analyzeAudioSilences(vid.file);
+        keepSegsForVideo = silResult.keepSegs;
+        preDecodedAudio  = silResult.audioBuffer;
+        const keptDur = keepSegsForVideo.reduce((s, seg) => s + seg.end - seg.start, 0);
+        addLog(`✓ ${keepSegsForVideo.length} segmentos mantidos (~${keptDur.toFixed(1)}s de fala)`, 'ok');
+      } catch (se) {
+        addLog('⚠ Análise de silêncios falhou: ' + se.message + ' — processando sem cortes', 'warn');
+      }
+    }
+
     try {
-      const { url, ext } = await processOne(vid, subtitles);
+      const { url, ext } = await processOne(vid, subtitles, keepSegsForVideo, preDecodedAudio);
       const base = vid.name.replace(/\.[^.]+$/, '');
       addDownload(url, base + '_template.' + ext);
       setStatus(i, 'done');
@@ -1329,6 +1387,135 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SILENCE REMOVAL — detecção de pausas + jump cuts automáticos
+// ─────────────────────────────────────────────────────────────────────────────
+const SIL_PRESETS = {
+  low:  { threshold: -40, minSilence: 0.50, padBefore: 0.08, padAfter: 0.20 },
+  mid:  { threshold: -35, minSilence: 0.30, padBefore: 0.05, padAfter: 0.15 },
+  high: { threshold: -30, minSilence: 0.15, padBefore: 0.03, padAfter: 0.10 }
+};
+
+function onSilToggle(checked) {
+  document.getElementById('silSettings').style.display = checked ? 'flex' : 'none';
+}
+
+async function analyzeAudioSilences(file) {
+  const level  = document.getElementById('silLevel')?.value || 'mid';
+  const preset = SIL_PRESETS[level] || SIL_PRESETS.mid;
+
+  // Decodifica em 44100 Hz (mesma taxa do AudioEncoder)
+  const audioCtx = new AudioContext({ sampleRate: 44100 });
+  const decoded  = await audioCtx.decodeAudioData(await file.arrayBuffer());
+  await audioCtx.close();
+
+  const sr  = decoded.sampleRate;
+  const len = decoded.length;
+  const dur = decoded.duration;
+  const WIN = Math.round(sr * 0.02); // janela de 20 ms
+
+  // Mix para mono (análise)
+  const nCh  = decoded.numberOfChannels;
+  const mono = new Float32Array(len);
+  for (let c = 0; c < nCh; c++) {
+    const ch = decoded.getChannelData(c);
+    for (let i = 0; i < len; i++) mono[i] += ch[i] / nCh;
+  }
+
+  // RMS por janela → silenciosa?
+  const thresh  = Math.pow(10, preset.threshold / 20);
+  const numWins = Math.ceil(len / WIN);
+  const silWin  = new Uint8Array(numWins);
+  for (let w = 0; w < numWins; w++) {
+    const s = w * WIN, e = Math.min(s + WIN, len);
+    let sq = 0;
+    for (let i = s; i < e; i++) sq += mono[i] * mono[i];
+    silWin[w] = Math.sqrt(sq / (e - s)) < thresh ? 1 : 0;
+  }
+
+  // Intervalos de silêncio (sequências de janelas silenciosas ≥ minSilence)
+  const silences = [];
+  let silStart = -1;
+  for (let w = 0; w <= numWins; w++) {
+    const isSil = w < numWins ? silWin[w] : 1;
+    if (isSil  && silStart < 0) silStart = w * WIN / sr;
+    if (!isSil && silStart >= 0) {
+      const silEnd = w * WIN / sr;
+      if (silEnd - silStart >= preset.minSilence) silences.push({ start: silStart, end: silEnd });
+      silStart = -1;
+    }
+  }
+
+  // Segmentos de fala (inverso dos silêncios, com margem)
+  const segs = [];
+  let cursor = 0;
+  for (const sil of silences) {
+    const segEnd = Math.min(dur, sil.start + preset.padAfter);
+    if (cursor < segEnd) segs.push({ start: cursor, end: segEnd });
+    cursor = Math.max(cursor, sil.end - preset.padBefore);
+  }
+  if (cursor < dur) segs.push({ start: cursor, end: dur });
+
+  // Mescla segmentos adjacentes/sobrepostos
+  const merged = [];
+  for (const seg of segs) {
+    if (merged.length && seg.start <= merged[merged.length - 1].end + 0.02) {
+      merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, seg.end);
+    } else {
+      merged.push({ ...seg });
+    }
+  }
+  if (!merged.length) merged.push({ start: 0, end: dur }); // fallback: mantém tudo
+
+  return { keepSegs: merged, audioBuffer: decoded };
+}
+
+// Retorna o tempo de saída (linha do tempo comprimida) para um dado tempo de entrada
+function getOutputTime(inputS, keepSegs) {
+  let t = 0;
+  for (const seg of keepSegs) {
+    if (inputS <= seg.start) break;
+    t += Math.min(seg.end, inputS) - seg.start;
+  }
+  return t;
+}
+
+function isInKeepSeg(timeS, keepSegs) {
+  return keepSegs.some(seg => timeS >= seg.start - 0.001 && timeS <= seg.end + 0.001);
+}
+
+// Codifica áudio pré-decodificado diretamente, respeitando os segmentos de fala
+async function encodeAudioFromBuffer(audioBuffer, keepSegs, audioEncoder, sr) {
+  const CHUNK = 1024;
+  const nCh   = Math.min(audioBuffer.numberOfChannels, 2);
+
+  for (const seg of keepSegs) {
+    const s0 = Math.floor(seg.start * sr);
+    const s1 = Math.min(Math.ceil(seg.end * sr), audioBuffer.length);
+
+    for (let f = s0; f < s1; f += CHUNK) {
+      if (audioEncoder.state !== 'configured') return;
+      const nFrames = Math.min(CHUNK, s1 - f);
+      const outUs   = Math.round(getOutputTime(f / sr, keepSegs) * 1_000_000);
+
+      // f32-planar: todos os canais concatenados
+      const data = new Float32Array(nFrames * nCh);
+      for (let c = 0; c < nCh; c++) {
+        const ch = audioBuffer.getChannelData(c);
+        for (let i = 0; i < nFrames; i++) data[c * nFrames + i] = ch[f + i] ?? 0;
+      }
+
+      const ad = new AudioData({
+        format: 'f32-planar', sampleRate: sr,
+        numberOfChannels: nCh, numberOfFrames: nFrames,
+        timestamp: outUs, data: data.buffer
+      });
+      audioEncoder.encode(ad);
+      ad.close();
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1616,6 +1803,10 @@ function resetAll() {
   document.getElementById('galleryPanel').style.display = 'none';
   document.getElementById('galleryCount').textContent   = '0 vídeos';
   completedVideos.length = 0;
+
+  // Remoção de silêncios
+  document.getElementById('silEnable').checked = false;
+  document.getElementById('silSettings').style.display = 'none';
 
   // Legendas
   _srtSegments = null;
