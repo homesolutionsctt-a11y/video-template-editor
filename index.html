@@ -470,20 +470,26 @@ header h1 { font-size: 17px; font-weight: 700; }
               <!-- ── Estilo (sempre visível) ── -->
               <div class="field-row">
                 <div class="field">
-                  <label>Posi&ccedil;&atilde;o</label>
-                  <select id="legPos">
-                    <option value="bottom">Inferior</option>
-                    <option value="top">Superior</option>
-                  </select>
+                  <label>Posi&ccedil;&atilde;o Y (px do fundo)</label>
+                  <input type="number" id="legPosY" value="500" min="0" max="1800" step="10">
                 </div>
                 <div class="field">
                   <label>Tam. fonte (px)</label>
                   <input type="number" id="legSize" value="52" min="20" max="120">
                 </div>
               </div>
-              <div class="field">
-                <label>Cor do texto</label>
-                <input type="color" id="legColor" value="#ffffff">
+              <div class="field-row">
+                <div class="field">
+                  <label>Cor do texto</label>
+                  <input type="color" id="legColor" value="#ffffff">
+                </div>
+                <div class="field" style="display:flex;flex-direction:column;gap:3px">
+                  <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">N&uacute;m. linhas</label>
+                  <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;margin-top:5px">
+                    <input type="checkbox" id="legOneLine" checked>
+                    <span>S&oacute; 1 linha</span>
+                  </label>
+                </div>
               </div>
 
             </div>
@@ -1094,10 +1100,11 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
       if (subtitles && subtitles.length) {
         const sub = subtitles.find(s => meta.mediaTime >= s.start && meta.mediaTime <= s.end);
         if (sub && sub.text) {
-          const fSize = parseInt(document.getElementById('legSize').value) || 52;
-          const fColor = document.getElementById('legColor').value || '#ffffff';
-          const fPos   = document.getElementById('legPos').value   || 'bottom';
-          drawCaption(procCtx, sub.text, W, H, fPos, fSize, fColor);
+          const fSize  = parseInt(document.getElementById('legSize').value)  || 52;
+          const fColor = document.getElementById('legColor').value            || '#ffffff';
+          const fPosY  = parseInt(document.getElementById('legPosY').value)   || 500;
+          const fOne   = document.getElementById('legOneLine').checked;
+          drawCaption(procCtx, sub.text, W, H, fPosY, fSize, fColor, fOne);
         }
       }
 
@@ -1719,36 +1726,45 @@ async function transcribeAudio(file, apiKey, lang) {
 }
 
 // ── Renderiza legenda queimada no canvas ──────────────────────────────────────
-function drawCaption(ctx, text, W, H, pos, fontSize, color) {
+// posY   = pixels do fundo do frame (ex.: 500 = 500px acima do rodapé)
+// oneLine = true → máx. 1 linha com truncamento "…" se necessário
+function drawCaption(ctx, text, W, H, posY, fontSize, color, oneLine) {
   if (!text) return;
   ctx.save();
 
-  const pad = Math.round(fontSize * 0.55);
-  const lh  = Math.round(fontSize * 1.35);
+  const pad  = Math.round(fontSize * 0.55);
+  const lh   = Math.round(fontSize * 1.35);
   const maxW = W - pad * 6;
 
-  ctx.font = `bold ${fontSize}px 'Segoe UI', Arial, sans-serif`;
+  ctx.font         = `bold ${fontSize}px 'Segoe UI', Arial, sans-serif`;
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'top';
 
-  // Quebra de linha automática
+  // Quebra de linha
   const words = text.split(' ');
-  const lines = [];
+  const wrapped = [];
   let cur = '';
   for (const w of words) {
     const test = cur ? cur + ' ' + w : w;
-    if (cur && ctx.measureText(test).width > maxW) { lines.push(cur); cur = w; }
+    if (cur && ctx.measureText(test).width > maxW) { wrapped.push(cur); cur = w; }
     else cur = test;
   }
-  if (cur) lines.push(cur);
+  if (cur) wrapped.push(cur);
+
+  // Limita a 1 linha com reticências se necessário
+  let lines = oneLine ? wrapped.slice(0, 1) : wrapped;
+  if (oneLine && wrapped.length > 1 && lines[0]) {
+    let t = lines[0];
+    while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+    lines = [t + '…'];
+  }
 
   const realW = Math.max(...lines.map(l => ctx.measureText(l).width));
   const boxW  = Math.min(realW + pad * 3, W - pad * 2);
   const boxH  = lines.length * lh + pad * 2;
   const bx    = (W - boxW) / 2;
-  const by    = pos === 'top'
-    ? Math.round(H * 0.04)
-    : Math.round(H - boxH - H * 0.035);
+  // posY em pixels do fundo do frame (clampado para não sair da tela)
+  const by    = Math.max(0, Math.round(H - boxH - posY));
 
   // Fundo semitransparente
   ctx.fillStyle = 'rgba(0,0,0,0.65)';
@@ -1764,9 +1780,7 @@ function drawCaption(ctx, text, W, H, pos, fontSize, color) {
   ctx.fillStyle   = color || '#ffffff';
   ctx.shadowColor = 'rgba(0,0,0,0.8)';
   ctx.shadowBlur  = Math.round(fontSize * 0.12);
-  lines.forEach((ln, i) => {
-    ctx.fillText(ln, W / 2, by + pad + i * lh);
-  });
+  lines.forEach((ln, i) => ctx.fillText(ln, W / 2, by + pad + i * lh));
 
   ctx.restore();
 }
@@ -1843,6 +1857,8 @@ function resetAll() {
   document.getElementById('legSettings').style.display = 'none';
   document.getElementById('legMode').value           = 'fixed';
   document.getElementById('legFixedText').value      = '';
+  document.getElementById('legPosY').value           = '500';
+  document.getElementById('legOneLine').checked      = true;
   document.getElementById('legFixedSection').style.display = 'block';
   document.getElementById('legApiSection').style.display   = 'none';
   document.getElementById('legSrtSection').style.display   = 'none';
