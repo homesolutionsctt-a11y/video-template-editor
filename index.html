@@ -1392,10 +1392,12 @@ function esc(s) {
 // ─────────────────────────────────────────────────────────────────────────────
 // SILENCE REMOVAL — detecção de pausas + jump cuts automáticos
 // ─────────────────────────────────────────────────────────────────────────────
+// threshFrac = fração do nível de fala abaixo da qual é silêncio
+// (threshold adaptativo — funciona com qualquer áudio comprimido/normalizado)
 const SIL_PRESETS = {
-  low:  { threshold: -40, minSilence: 0.50, padBefore: 0.08, padAfter: 0.20 },
-  mid:  { threshold: -35, minSilence: 0.30, padBefore: 0.05, padAfter: 0.15 },
-  high: { threshold: -30, minSilence: 0.15, padBefore: 0.03, padAfter: 0.10 }
+  low:  { threshFrac: 0.12, minSilence: 0.50, padBefore: 0.08, padAfter: 0.20 },
+  mid:  { threshFrac: 0.22, minSilence: 0.25, padBefore: 0.05, padAfter: 0.15 },
+  high: { threshFrac: 0.40, minSilence: 0.10, padBefore: 0.03, padAfter: 0.08 }
 };
 
 function onSilToggle(checked) {
@@ -1406,7 +1408,7 @@ async function analyzeAudioSilences(file) {
   const level  = document.getElementById('silLevel')?.value || 'mid';
   const preset = SIL_PRESETS[level] || SIL_PRESETS.mid;
 
-  // Decodifica em 44100 Hz (mesma taxa do AudioEncoder)
+  // Decodifica em 44100 Hz
   const audioCtx = new AudioContext({ sampleRate: 44100 });
   const decoded  = await audioCtx.decodeAudioData(await file.arrayBuffer());
   await audioCtx.close();
@@ -1414,9 +1416,9 @@ async function analyzeAudioSilences(file) {
   const sr  = decoded.sampleRate;
   const len = decoded.length;
   const dur = decoded.duration;
-  const WIN = Math.round(sr * 0.02); // janela de 20 ms
+  const WIN = Math.round(sr * 0.025); // janela de 25 ms
 
-  // Mix para mono (análise)
+  // Mix para mono
   const nCh  = decoded.numberOfChannels;
   const mono = new Float32Array(len);
   for (let c = 0; c < nCh; c++) {
@@ -1424,18 +1426,42 @@ async function analyzeAudioSilences(file) {
     for (let i = 0; i < len; i++) mono[i] += ch[i] / nCh;
   }
 
-  // RMS por janela → silenciosa?
-  const thresh  = Math.pow(10, preset.threshold / 20);
+  // RMS por janela
   const numWins = Math.ceil(len / WIN);
-  const silWin  = new Uint8Array(numWins);
+  const rmsArr  = new Float32Array(numWins);
   for (let w = 0; w < numWins; w++) {
     const s = w * WIN, e = Math.min(s + WIN, len);
     let sq = 0;
     for (let i = s; i < e; i++) sq += mono[i] * mono[i];
-    silWin[w] = Math.sqrt(sq / (e - s)) < thresh ? 1 : 0;
+    rmsArr[w] = Math.sqrt(sq / (e - s));
   }
 
-  // Intervalos de silêncio (sequências de janelas silenciosas ≥ minSilence)
+  // Suaviza RMS (média móvel de 5 janelas = ~125ms) para evitar falsos gatilhos
+  const smoothed = new Float32Array(numWins);
+  for (let w = 0; w < numWins; w++) {
+    let sum = 0, cnt = 0;
+    for (let d = -2; d <= 2; d++) {
+      const j = w + d;
+      if (j >= 0 && j < numWins) { sum += rmsArr[j]; cnt++; }
+    }
+    smoothed[w] = sum / cnt;
+  }
+
+  // ── Threshold adaptativo ──────────────────────────────────────────────────
+  // Usa o percentil 85 do RMS como referência de "nível de fala"
+  // e aplica uma fração como limiar de silêncio.
+  // Isso funciona mesmo com áudio comprimido/normalizado onde o "silêncio"
+  // ainda tem ruído de fundo em -20 a -15 dB.
+  const sortedRms = Float32Array.from(smoothed).sort();
+  const speechRef = sortedRms[Math.floor(sortedRms.length * 0.85)] || 0.01;
+  const thresh    = Math.max(speechRef * preset.threshFrac, 1e-5);
+  addLog(`Referência de fala: ${(20*Math.log10(speechRef)).toFixed(1)} dB  |  Limiar: ${(20*Math.log10(thresh)).toFixed(1)} dB`, 'ok');
+
+  // Marca janelas silenciosas
+  const silWin = new Uint8Array(numWins);
+  for (let w = 0; w < numWins; w++) silWin[w] = smoothed[w] < thresh ? 1 : 0;
+
+  // Intervalos de silêncio (sequências ≥ minSilence)
   const silences = [];
   let silStart = -1;
   for (let w = 0; w <= numWins; w++) {
@@ -1447,6 +1473,9 @@ async function analyzeAudioSilences(file) {
       silStart = -1;
     }
   }
+  const totalSilMs = Math.round(silences.reduce((s, x) => s + x.end - x.start, 0) * 1000);
+  addLog(`${silences.length} pausa(s) detectada(s) — ${(totalSilMs/1000).toFixed(1)}s a remover`, silences.length ? 'ok' : 'warn');
+  if (!silences.length) addLog('Nenhuma pausa encontrada. Tente a sensibilidade "Agressiva".', 'warn');
 
   // Segmentos de fala (inverso dos silêncios, com margem)
   const segs = [];
@@ -1458,7 +1487,7 @@ async function analyzeAudioSilences(file) {
   }
   if (cursor < dur) segs.push({ start: cursor, end: dur });
 
-  // Mescla segmentos adjacentes/sobrepostos
+  // Mescla segmentos adjacentes
   const merged = [];
   for (const seg of segs) {
     if (merged.length && seg.start <= merged[merged.length - 1].end + 0.02) {
@@ -1467,7 +1496,7 @@ async function analyzeAudioSilences(file) {
       merged.push({ ...seg });
     }
   }
-  if (!merged.length) merged.push({ start: 0, end: dur }); // fallback: mantém tudo
+  if (!merged.length) merged.push({ start: 0, end: dur });
 
   return { keepSegs: merged, audioBuffer: decoded };
 }
