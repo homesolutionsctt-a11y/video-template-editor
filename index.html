@@ -1063,6 +1063,11 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
     addLog('Autoplay bloqueou áudio — este vídeo será mudo', 'warn');
   }
 
+  // Modo rápido: quando o áudio já está pré-decodificado (remoção de silêncios)
+  // podemos rodar o vídeo em alta velocidade — sem efeito colateral no áudio
+  const FAST_RATE = preDecodedAudio ? 4 : 1;
+  if (FAST_RATE > 1) videoEl.playbackRate = FAST_RATE;
+
   procLabel.style.display = 'block';
 
   // ── Loop de frames via requestVideoFrameCallback ──────────────────────────
@@ -1070,8 +1075,10 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
     const totalDur  = videoEl.duration || 0;
     const keepDur   = keepSegs ? keepSegs.reduce((s, g) => s + g.end - g.start, 0) : totalDur;
     const nSegs     = keepSegs ? keepSegs.length : 1;
-    addLog(`▶ Codificando ${fmtTime(totalDur)} de vídeo (${nSegs} segmentos → saída ~${fmtTime(keepDur)})…`);
-    if (totalDur > 90) addLog(`ℹ️ Vídeo longo: processamento em tempo real (~${Math.ceil(totalDur/60)} min).`, 'warn');
+    const estSecs   = Math.ceil(totalDur / FAST_RATE);
+    addLog(`▶ Codificando ${fmtTime(totalDur)} de vídeo (${nSegs} seg → saída ~${fmtTime(keepDur)})…`);
+    if (FAST_RATE > 1) addLog(`⚡ Modo rápido ${FAST_RATE}× — estimativa ~${fmtTime(estSecs)}.`, 'ok');
+    else if (totalDur > 90) addLog(`ℹ️ Vídeo longo: processamento em tempo real (~${Math.ceil(totalDur/60)} min).`, 'warn');
   }
 
   await new Promise((resolve) => {
@@ -1148,7 +1155,7 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
         addLog(`  ⏱ ${fmtTime(meta.mediaTime)} / ${fmtTime(videoEl.duration)}  (${Math.round(pct * 100)}%)`);
       }
 
-      const nearEnd = meta.mediaTime >= videoEl.duration - 0.05;
+      const nearEnd = meta.mediaTime >= videoEl.duration - (0.05 * FAST_RATE);
       if (!videoEl.ended && !nearEnd) {
         videoEl.requestVideoFrameCallback(onFrame);
       } else {
@@ -1560,8 +1567,9 @@ function isInKeepSeg(timeS, keepSegs) {
 
 // Codifica áudio pré-decodificado diretamente, respeitando os segmentos de fala
 async function encodeAudioFromBuffer(audioBuffer, keepSegs, audioEncoder, sr) {
-  const CHUNK = 1024;
+  const CHUNK = 4096; // chunks maiores = menos objetos AudioData
   const nCh   = Math.min(audioBuffer.numberOfChannels, 2);
+  let   chunkCount = 0;
 
   for (const seg of keepSegs) {
     const s0 = Math.floor(seg.start * sr);
@@ -1572,7 +1580,7 @@ async function encodeAudioFromBuffer(audioBuffer, keepSegs, audioEncoder, sr) {
       const nFrames = Math.min(CHUNK, s1 - f);
       const outUs   = Math.round(getOutputTime(f / sr, keepSegs) * 1_000_000);
 
-      // f32-planar: todos os canais concatenados
+      // f32-planar: canais concatenados
       const data = new Float32Array(nFrames * nCh);
       for (let c = 0; c < nCh; c++) {
         const ch = audioBuffer.getChannelData(c);
@@ -1586,6 +1594,9 @@ async function encodeAudioFromBuffer(audioBuffer, keepSegs, audioEncoder, sr) {
       });
       audioEncoder.encode(ad);
       ad.close();
+
+      // Yield a cada 200 chunks — deixa o AudioEncoder drenar a fila
+      if (++chunkCount % 200 === 0) await new Promise(r => setTimeout(r, 0));
     }
   }
 }
