@@ -1063,28 +1063,26 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
     addLog('Autoplay bloqueou áudio — este vídeo será mudo', 'warn');
   }
 
-  // Modo rápido: quando o áudio já está pré-decodificado (remoção de silêncios)
-  // podemos rodar o vídeo em alta velocidade — sem efeito colateral no áudio
-  const FAST_RATE = preDecodedAudio ? 4 : 1;
-  if (FAST_RATE > 1) videoEl.playbackRate = FAST_RATE;
-
   procLabel.style.display = 'block';
 
   // ── Loop de frames via requestVideoFrameCallback ──────────────────────────
+  // Quando keepSegs está ativo, pulamos os silêncios via seek — muito mais
+  // rápido do que tocar o vídeo completo, pois só processamos os trechos de fala.
   {
-    const totalDur  = videoEl.duration || 0;
-    const keepDur   = keepSegs ? keepSegs.reduce((s, g) => s + g.end - g.start, 0) : totalDur;
-    const nSegs     = keepSegs ? keepSegs.length : 1;
-    const estSecs   = Math.ceil(totalDur / FAST_RATE);
+    const totalDur = videoEl.duration || 0;
+    const keepDur  = keepSegs ? keepSegs.reduce((s, g) => s + g.end - g.start, 0) : totalDur;
+    const nSegs    = keepSegs ? keepSegs.length : 1;
     addLog(`▶ Codificando ${fmtTime(totalDur)} de vídeo (${nSegs} seg → saída ~${fmtTime(keepDur)})…`);
-    if (FAST_RATE > 1) addLog(`⚡ Modo rápido ${FAST_RATE}× — estimativa ~${fmtTime(estSecs)}.`, 'ok');
-    else if (totalDur > 90) addLog(`ℹ️ Vídeo longo: processamento em tempo real (~${Math.ceil(totalDur/60)} min).`, 'warn');
+    if (keepSegs) addLog(`⚡ Modo seek: processa só ${fmtTime(keepDur)} de fala (pula silêncios).`, 'ok');
+    else if (totalDur > 90) addLog(`ℹ️ Vídeo longo (~${Math.ceil(totalDur/60)} min) — aguarde.`, 'warn');
   }
 
   await new Promise((resolve) => {
-    let finished = false;
-    let frameIndex = 0;
-    let lastProgressLog = -15; // aciona imediatamente no primeiro frame ≥ 0
+    let finished    = false;
+    let frameIndex  = 0;
+    let isSeeking   = false;
+    let lastProgLog = -15;
+    let encodedDur  = 0; // acumulado de fala já processada (para progresso real)
 
     const finish = () => {
       if (finished) return;
@@ -1092,29 +1090,40 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
       resolve();
     };
 
+    // Resume o RVFC após um seek
+    const onSeeked = () => { if (!finished && isSeeking) { isSeeking = false; videoEl.requestVideoFrameCallback(onFrame); } };
+    videoEl.addEventListener('seeked', onSeeked);
+
     function onFrame(now, meta) {
       if (finished) return;
       if (_cancelProcessing) { finish(); return; }
 
-      // Desenha frame composto: template + vídeo na safe zone
-      procCtx.drawImage(S.tplImg, 0, 0, W, H);
+      // ── Verifica se estamos em silêncio → pula para o próximo segmento ──
+      if (keepSegs && !isInKeepSeg(meta.mediaTime, keepSegs)) {
+        const nextSeg = keepSegs.find(seg => seg.start > meta.mediaTime + 0.05);
+        if (nextSeg) {
+          isSeeking = true;
+          videoEl.currentTime = nextSeg.start;
+          return; // retoma via evento 'seeked'
+        } else {
+          finish(); return;
+        }
+      }
 
-      const vw = videoEl.videoWidth;
-      const vh = videoEl.videoHeight;
+      // ── Desenha frame composto: template + vídeo na safe zone ──
+      procCtx.drawImage(S.tplImg, 0, 0, W, H);
+      const vw = videoEl.videoWidth, vh = videoEl.videoHeight;
       if (vw > 0 && vh > 0) {
         const sc = Math.max(szW / vw, szH / vh);
         const dw = vw * sc, dh = vh * sc;
-        const dx = szX + (szW - dw) / 2;
-        const dy = szY + (szH - dh) / 2;
+        const dx = szX + (szW - dw) / 2, dy = szY + (szH - dh) / 2;
         procCtx.save();
-        procCtx.beginPath();
-        procCtx.rect(szX, szY, szW, szH);
-        procCtx.clip();
+        procCtx.beginPath(); procCtx.rect(szX, szY, szW, szH); procCtx.clip();
         procCtx.drawImage(videoEl, dx, dy, dw, dh);
         procCtx.restore();
       }
 
-      // Legenda (queimada no frame)
+      // ── Legenda (queimada no frame) ──
       if (subtitles && subtitles.length) {
         const sub = subtitles.find(s => meta.mediaTime >= s.start && meta.mediaTime <= s.end);
         if (sub && sub.text) {
@@ -1126,36 +1135,32 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
         }
       }
 
-      // Encoda frame (com filtro de silêncio se ativo)
-      const _inKeep = !keepSegs || isInKeepSeg(meta.mediaTime, keepSegs);
-      if (_inKeep) {
-        const tsUs  = keepSegs
-          ? Math.round(getOutputTime(meta.mediaTime, keepSegs) * 1_000_000)
-          : Math.round(meta.mediaTime * 1_000_000);
-        const durUs = Math.round(1_000_000 / FPS);
-        let vf;
-        try {
-          vf = new VideoFrame(procCanvas, { timestamp: tsUs, duration: durUs });
-          videoEncoder.encode(vf, { keyFrame: frameIndex % 60 === 0 });
-          vf.close();
-        } catch (e) {
-          try { if (vf) vf.close(); } catch (_) {}
-        }
-        frameIndex++;
-      }
+      // ── Codifica VideoFrame ──
+      const tsUs  = keepSegs
+        ? Math.round(getOutputTime(meta.mediaTime, keepSegs) * 1_000_000)
+        : Math.round(meta.mediaTime * 1_000_000);
+      const durUs = Math.round(1_000_000 / FPS);
+      let vf;
+      try {
+        vf = new VideoFrame(procCanvas, { timestamp: tsUs, duration: durUs });
+        videoEncoder.encode(vf, { keyFrame: frameIndex % 60 === 0 });
+        vf.close();
+      } catch (e) { try { if (vf) vf.close(); } catch (_) {} }
+      frameIndex++;
+      encodedDur += 1 / FPS;
 
-      // Progresso
-      const pct = videoEl.duration > 0 ? meta.mediaTime / videoEl.duration : 0;
+      // ── Progresso ──
+      const totalKeepDur = keepSegs ? keepSegs.reduce((s, g) => s + g.end - g.start, 0) : videoEl.duration;
+      const pct = totalKeepDur > 0 ? Math.min(encodedDur / totalKeepDur, 1) : 0;
       document.getElementById('progBar').style.width = Math.round(pct * 100) + '%';
       procLabel.textContent = fmtTime(meta.mediaTime) + ' / ' + fmtTime(videoEl.duration);
 
-      // Log a cada 15 segundos de vídeo
-      if (meta.mediaTime - lastProgressLog >= 15) {
-        lastProgressLog = meta.mediaTime;
-        addLog(`  ⏱ ${fmtTime(meta.mediaTime)} / ${fmtTime(videoEl.duration)}  (${Math.round(pct * 100)}%)`);
+      if (encodedDur - lastProgLog >= 15) {
+        lastProgLog = encodedDur;
+        addLog(`  ⏱ ${fmtTime(encodedDur)} / ${fmtTime(totalKeepDur)} de fala  (${Math.round(pct * 100)}%)`);
       }
 
-      const nearEnd = meta.mediaTime >= videoEl.duration - (0.05 * FAST_RATE);
+      const nearEnd = meta.mediaTime >= videoEl.duration - 0.15;
       if (!videoEl.ended && !nearEnd) {
         videoEl.requestVideoFrameCallback(onFrame);
       } else {
