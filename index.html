@@ -1246,7 +1246,12 @@ async function startProcessing() {
       globalSubs = [{ start: 0, end: Infinity, text: txt }];
       addLog('Legenda fixa: "' + txt + '"', 'ok');
     } else {
-      addLog('⚠ Texto fixo vazio — processando sem legenda', 'warn');
+      // Alerta visível + foca o campo para o usuário não deixar passar em branco
+      document.getElementById('legFixedText').focus();
+      document.getElementById('legFixedText').style.borderColor = 'var(--red)';
+      setTimeout(() => document.getElementById('legFixedText').style.borderColor = '', 3000);
+      addLog('⚠ Legendas ativadas mas o texto está vazio! Digite algo no campo "Texto da legenda".', 'err');
+      // Deixa processar sem legenda para não bloquear o fluxo
     }
   } else if (legMode === 'srt') {
     if (_srtSegments && _srtSegments.length) {
