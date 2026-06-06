@@ -411,14 +411,36 @@ header h1 { font-size: 17px; font-weight: 700; }
               <div class="field">
                 <label>Modo</label>
                 <select id="legMode" onchange="onLegModeChange()">
+                  <option value="local">&#127775; Autom&aacute;tica local (sem API)</option>
                   <option value="fixed">Texto fixo (sem API)</option>
-                  <option value="api">Transcri&ccedil;&atilde;o autom&aacute;tica (API)</option>
+                  <option value="api">Transcri&ccedil;&atilde;o via API (Groq/OpenAI)</option>
                   <option value="srt">Importar arquivo .SRT / .VTT</option>
                 </select>
               </div>
 
+              <!-- ── Local (Whisper no browser) ── -->
+              <div id="legLocalSection">
+                <p class="leg-hint">
+                  &#127775; <strong>Whisper roda direto no seu browser</strong> — sem conta, sem API key, sem custo.<br>
+                  Na <strong>1&ordf; vez</strong> baixa o modelo (~75&nbsp;MB, salvo no browser). Depois &eacute; instant&acirc;neo.
+                </p>
+                <div class="field">
+                  <label>Idioma</label>
+                  <select id="legLangLocal">
+                    <option value="pt" selected>Portugu&ecirc;s</option>
+                    <option value="en">English</option>
+                    <option value="es">Espa&ntilde;ol</option>
+                    <option value="fr">Fran&ccedil;ais</option>
+                    <option value="de">Deutsch</option>
+                    <option value="it">Italiano</option>
+                    <option value="ja">&#26085;&#26412;&#35486;</option>
+                    <option value="zh">&#20013;&#25991;</option>
+                  </select>
+                </div>
+              </div>
+
               <!-- ── Texto fixo ── -->
-              <div id="legFixedSection">
+              <div id="legFixedSection" style="display:none">
                 <div class="field">
                   <label>Texto da legenda</label>
                   <input type="text" id="legFixedText" placeholder="Ex.: Siga @minha_conta &#128071;" autocomplete="off">
@@ -1246,12 +1268,10 @@ async function startProcessing() {
       globalSubs = [{ start: 0, end: Infinity, text: txt }];
       addLog('Legenda fixa: "' + txt + '"', 'ok');
     } else {
-      // Alerta visível + foca o campo para o usuário não deixar passar em branco
       document.getElementById('legFixedText').focus();
       document.getElementById('legFixedText').style.borderColor = 'var(--red)';
       setTimeout(() => document.getElementById('legFixedText').style.borderColor = '', 3000);
       addLog('⚠ Legendas ativadas mas o texto está vazio! Digite algo no campo "Texto da legenda".', 'err');
-      // Deixa processar sem legenda para não bloquear o fluxo
     }
   } else if (legMode === 'srt') {
     if (_srtSegments && _srtSegments.length) {
@@ -1268,14 +1288,22 @@ async function startProcessing() {
     addLog('[' + (i + 1) + '/' + S.videos.length + '] ' + vid.name);
     document.getElementById('progBar').style.width = '0%';
 
-    // Transcrição via API é por vídeo (cada um pode ter fala diferente)
+    // Transcrição por vídeo (cada um pode ter fala diferente)
     let subtitles = globalSubs;
-    if (legMode === 'api') {
+    if (legMode === 'local') {
+      try {
+        const lang = document.getElementById('legLangLocal').value || 'pt';
+        subtitles = await transcribeWithXenova(vid.file, lang);
+      } catch (te) {
+        addLog('⚠ Transcrição local falhou: ' + te.message + ' — sem legenda', 'warn');
+        subtitles = null;
+      }
+    } else if (legMode === 'api') {
       const apiKey = document.getElementById('legApiKey').value.trim();
       if (!apiKey) {
         addLog('⚠ Chave API não informada — processando sem legenda', 'warn');
       } else {
-        addLog('Transcrevendo áudio com Whisper…', 'warn');
+        addLog('Transcrevendo áudio com Whisper (API)…', 'warn');
         try {
           const lang = document.getElementById('legLang').value;
           subtitles = await transcribeAudio(vid.file, apiKey, lang);
@@ -1622,9 +1650,82 @@ function onLegToggle(checked) {
 
 function onLegModeChange() {
   const mode = document.getElementById('legMode').value;
+  document.getElementById('legLocalSection').style.display = mode === 'local' ? 'block' : 'none';
   document.getElementById('legFixedSection').style.display = mode === 'fixed' ? 'block' : 'none';
   document.getElementById('legApiSection').style.display   = mode === 'api'   ? 'flex'  : 'none';
   document.getElementById('legSrtSection').style.display   = mode === 'srt'   ? 'block' : 'none';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WHISPER LOCAL — transcrição 100% no browser via @xenova/transformers
+// ─────────────────────────────────────────────────────────────────────────────
+let _xenovaPipeline = null;
+
+async function getXenovaPipeline() {
+  if (_xenovaPipeline) return _xenovaPipeline;
+
+  addLog('Carregando biblioteca transformers.js…', 'warn');
+  const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
+  env.allowLocalModels  = false;
+  env.allowRemoteModels = true;
+
+  addLog('Baixando modelo Whisper base (~75 MB — salvo no browser após 1ª vez)…', 'warn');
+  _xenovaPipeline = await pipeline(
+    'automatic-speech-recognition',
+    'Xenova/whisper-base',
+    {
+      quantized: true,
+      progress_callback: p => {
+        if (p.status === 'progress' && p.name && p.progress != null) {
+          addLog(`  ⬇ ${p.name.split('/').pop()}: ${Math.round(p.progress)}%`);
+        } else if (p.status === 'ready') {
+          addLog('✓ Modelo pronto!', 'ok');
+        }
+      }
+    }
+  );
+  return _xenovaPipeline;
+}
+
+const _LANG_MAP = {
+  pt:'portuguese', en:'english', es:'spanish', fr:'french',
+  de:'german', it:'italian', ja:'japanese', zh:'chinese'
+};
+
+async function transcribeWithXenova(file, lang) {
+  // Decode audio at 16 kHz mono (formato que o Whisper espera)
+  const audioCtx = new AudioContext({ sampleRate: 16000 });
+  const decoded  = await audioCtx.decodeAudioData(await file.arrayBuffer());
+  await audioCtx.close();
+
+  const nCh  = decoded.numberOfChannels;
+  const mono = new Float32Array(decoded.length);
+  for (let c = 0; c < nCh; c++) {
+    const ch = decoded.getChannelData(c);
+    for (let i = 0; i < mono.length; i++) mono[i] += ch[i] / nCh;
+  }
+
+  const transcriber = await getXenovaPipeline();
+  addLog('Transcrevendo áudio localmente…', 'warn');
+
+  const result = await transcriber(mono, {
+    language:        _LANG_MAP[lang] || 'portuguese',
+    task:            'transcribe',
+    return_timestamps: true,
+    chunk_length_s:  30,
+    stride_length_s: 5
+  });
+
+  const segments = (result.chunks || [])
+    .map(c => ({
+      start: c.timestamp[0] ?? 0,
+      end:   c.timestamp[1] ?? (c.timestamp[0] + 3),
+      text:  c.text.trim()
+    }))
+    .filter(s => s.text);
+
+  addLog(`✓ ${segments.length} legendas geradas localmente`, 'ok');
+  return segments;
 }
 
 // Persiste chave API por provedor
@@ -1914,11 +2015,12 @@ function resetAll() {
   _srtSegments = null;
   document.getElementById('legEnable').checked       = false;
   document.getElementById('legSettings').style.display = 'none';
-  document.getElementById('legMode').value           = 'fixed';
+  document.getElementById('legMode').value           = 'local';
   document.getElementById('legFixedText').value      = '';
   document.getElementById('legPosY').value           = '500';
   document.getElementById('legOneLine').checked      = true;
-  document.getElementById('legFixedSection').style.display = 'block';
+  document.getElementById('legLocalSection').style.display = 'block';
+  document.getElementById('legFixedSection').style.display = 'none';
   document.getElementById('legApiSection').style.display   = 'none';
   document.getElementById('legSrtSection').style.display   = 'none';
   document.getElementById('srtLoaded').style.display = 'none';
