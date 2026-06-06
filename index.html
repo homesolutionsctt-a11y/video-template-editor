@@ -1664,7 +1664,8 @@ const _LANG_MAP = {
   de:'german', it:'italian', ja:'japanese', zh:'chinese'
 };
 
-// Código do worker como string — roda em thread separada
+// Código do worker — roda em thread separada para não travar a UI
+// Usa whisper-tiny (~39 MB): 3× mais rápido que base, adequado para voz clara
 const _WORKER_SRC = `
 self.onmessage = async function(e) {
   const msg = e.data;
@@ -1672,18 +1673,29 @@ self.onmessage = async function(e) {
     if (!self._tr) {
       const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
       env.allowLocalModels = false; env.allowRemoteModels = true;
-      self._tr = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base', {
+      self._tr = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny', {
         quantized: true,
         progress_callback: p => self.postMessage({ type:'progress', status:p.status, name:p.name, progress:p.progress })
       });
+      self.postMessage({ type:'progress', status:'ready' });
     }
     if (msg.type === 'transcribe') {
       const audio = new Float32Array(msg.buf);
-      const result = await self._tr(audio, {
-        language: msg.lang, task:'transcribe', return_timestamps:true,
-        chunk_length_s:30, stride_length_s:5
-      });
-      self.postMessage({ type:'result', result });
+      const SR = 16000, CHUNK_S = 28, CHUNK_LEN = SR * CHUNK_S;
+      const numChunks = Math.max(1, Math.ceil(audio.length / CHUNK_LEN));
+      const segs = [];
+      for (let i = 0; i < numChunks; i++) {
+        self.postMessage({ type:'progress', status:'chunk', current:i+1, total:numChunks });
+        const s = i * CHUNK_LEN;
+        const chunk = audio.slice(s, Math.min(s + CHUNK_LEN, audio.length));
+        const res = await self._tr(chunk, { language: msg.lang, task:'transcribe', return_timestamps:true });
+        const off = i * CHUNK_S;
+        (res.chunks || []).forEach(c => {
+          const text = c.text.trim();
+          if (text) segs.push({ start:(c.timestamp[0]||0)+off, end:(c.timestamp[1]||(c.timestamp[0]||0)+3)+off, text });
+        });
+      }
+      self.postMessage({ type:'result', segs });
     }
   } catch(err) { self.postMessage({ type:'error', message:err.message }); }
 };
@@ -1722,17 +1734,16 @@ async function transcribeWithXenova(file, lang) {
       if (msg.type === 'progress') {
         if (msg.status === 'progress' && msg.name && msg.progress != null) {
           const key = msg.name.split('/').pop();
-          const pct = Math.round(msg.progress / 10) * 10; // arredonda a 10%
+          const pct = Math.round(msg.progress / 10) * 10;
           if (pctSeen[key] !== pct) { pctSeen[key] = pct; addLog(`  ⬇ ${key}: ${pct}%`); }
         } else if (msg.status === 'ready') {
-          addLog('✓ Modelo pronto! Transcrevendo áudio…', 'ok');
+          addLog('✓ Modelo pronto!', 'ok');
+        } else if (msg.status === 'chunk') {
+          addLog(`  🎤 Transcrevendo trecho ${msg.current}/${msg.total}…`);
         }
       } else if (msg.type === 'result') {
-        const segs = (msg.result.chunks || [])
-          .map(c => ({ start: c.timestamp[0]??0, end: c.timestamp[1]??(c.timestamp[0]+3), text: c.text.trim() }))
-          .filter(s => s.text);
-        addLog(`✓ ${segs.length} legendas geradas`, 'ok');
-        resolve(segs);
+        addLog(`✓ ${msg.segs.length} legendas geradas`, 'ok');
+        resolve(msg.segs);
       } else if (msg.type === 'error') {
         reject(new Error(msg.message));
       }
