@@ -527,6 +527,9 @@ header h1 { font-size: 17px; font-weight: 700; }
           <button class="btn btn-primary" id="procBtn" onclick="startProcessing()">
             &#9654; Processar todos os v&iacute;deos
           </button>
+          <button class="btn btn-ghost" id="cancelBtn" style="display:none;margin-top:6px;color:var(--red);border-color:rgba(239,68,68,.35)" onclick="cancelProcessing()">
+            &#9632; Cancelar processamento
+          </button>
           <div class="log" id="logBox" style="display:none"></div>
           <div class="dl-links" id="dlLinks"></div>
           <button class="btn-dl-all" id="btnDlAll" onclick="downloadAll()">
@@ -1063,11 +1066,18 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
   procLabel.style.display = 'block';
 
   // ── Loop de frames via requestVideoFrameCallback ──────────────────────────
-  // RVFC dispara exatamente uma vez por frame decodificado →
-  // sem travamentos, sem frames duplicados
+  {
+    const totalDur  = videoEl.duration || 0;
+    const keepDur   = keepSegs ? keepSegs.reduce((s, g) => s + g.end - g.start, 0) : totalDur;
+    const nSegs     = keepSegs ? keepSegs.length : 1;
+    addLog(`▶ Codificando ${fmtTime(totalDur)} de vídeo (${nSegs} segmentos → saída ~${fmtTime(keepDur)})…`);
+    if (totalDur > 90) addLog(`ℹ️ Vídeo longo: processamento em tempo real (~${Math.ceil(totalDur/60)} min).`, 'warn');
+  }
+
   await new Promise((resolve) => {
     let finished = false;
     let frameIndex = 0;
+    let lastProgressLog = -15; // aciona imediatamente no primeiro frame ≥ 0
 
     const finish = () => {
       if (finished) return;
@@ -1077,6 +1087,7 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
 
     function onFrame(now, meta) {
       if (finished) return;
+      if (_cancelProcessing) { finish(); return; }
 
       // Desenha frame composto: template + vídeo na safe zone
       procCtx.drawImage(S.tplImg, 0, 0, W, H);
@@ -1131,6 +1142,12 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
       document.getElementById('progBar').style.width = Math.round(pct * 100) + '%';
       procLabel.textContent = fmtTime(meta.mediaTime) + ' / ' + fmtTime(videoEl.duration);
 
+      // Log a cada 15 segundos de vídeo
+      if (meta.mediaTime - lastProgressLog >= 15) {
+        lastProgressLog = meta.mediaTime;
+        addLog(`  ⏱ ${fmtTime(meta.mediaTime)} / ${fmtTime(videoEl.duration)}  (${Math.round(pct * 100)}%)`);
+      }
+
       const nearEnd = meta.mediaTime >= videoEl.duration - 0.05;
       if (!videoEl.ended && !nearEnd) {
         videoEl.requestVideoFrameCallback(onFrame);
@@ -1147,9 +1164,17 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
   audioAbort.abort();
   await audioLoop;
 
+  if (_cancelProcessing) { cleanup(); throw new Error('Cancelado pelo usuário.'); }
+
+  addLog('✓ Vídeo codificado. Finalizando áudio…', 'ok');
+
   // Áudio pré-decodificado (modo remoção de silêncios): encode após vídeo
   if (preDecodedAudio && audioEncoder && keepSegs) {
-    await encodeAudioFromBuffer(preDecodedAudio, keepSegs, audioEncoder, _audSR);
+    try {
+      await encodeAudioFromBuffer(preDecodedAudio, keepSegs, audioEncoder, _audSR);
+    } catch (ae) {
+      addLog('Aviso: falha na codificação de áudio — ' + ae.message, 'warn');
+    }
   }
 
   await videoEncoder.flush();
@@ -1182,9 +1207,11 @@ async function startProcessing() {
     return;
   }
 
+  _cancelProcessing = false;
   const btn = document.getElementById('procBtn');
   btn.disabled = true;
   btn.textContent = 'Processando…';
+  document.getElementById('cancelBtn').style.display = 'flex';
   document.getElementById('progWrap').style.display = 'block';
   document.getElementById('logBox').style.display   = 'block';
   renderProcList();
@@ -1276,6 +1303,8 @@ async function startProcessing() {
   addLog('Concluído.', 'ok');
   btn.disabled = false;
   btn.textContent = '▶ Processar novamente';
+  document.getElementById('cancelBtn').style.display = 'none';
+  _cancelProcessing = false;
 
   // Mostra galeria automaticamente se ao menos um vídeo foi concluído
   if (completedVideos.length > 0) {
@@ -1310,6 +1339,13 @@ function setStatus(i, s) {
 }
 
 const stxt = s => ({ pending: 'aguardando', processing: 'processando…', done: 'concluído', error: 'erro' }[s] || s);
+
+// ── Cancelamento de processamento ────────────────────────────────────────────
+let _cancelProcessing = false;
+function cancelProcessing() {
+  _cancelProcessing = true;
+  addLog('⏹ Cancelando…', 'warn');
+}
 
 // ── Vídeos concluídos (galeria + download em massa) ───────────────────────────
 const completedVideos = [];
@@ -1841,6 +1877,8 @@ function resetAll() {
   document.getElementById('progWrap').style.display    = 'none';
   document.getElementById('progBar').style.width       = '0%';
   document.getElementById('goProc').style.display      = 'none';
+  document.getElementById('cancelBtn').style.display   = 'none';
+  _cancelProcessing = false;
   document.getElementById('btnDlAll').style.display    = 'none';
   document.getElementById('btnShowGallery').style.display = 'none';
   document.getElementById('galleryPanel').style.display = 'none';
