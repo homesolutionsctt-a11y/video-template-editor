@@ -1683,18 +1683,34 @@ self.onmessage = async function(e) {
       const audio = new Float32Array(msg.buf);
       const SR = 16000, CHUNK_S = 28, CHUNK_LEN = SR * CHUNK_S;
       const numChunks = Math.max(1, Math.ceil(audio.length / CHUNK_LEN));
-      const segs = [];
+
+      // Coleta tokens com timestamp por palavra (return_timestamps:'word')
+      const words = [];
       for (let i = 0; i < numChunks; i++) {
         self.postMessage({ type:'progress', status:'chunk', current:i+1, total:numChunks });
         const s = i * CHUNK_LEN;
         const chunk = audio.slice(s, Math.min(s + CHUNK_LEN, audio.length));
-        const res = await self._tr(chunk, { language: msg.lang, task:'transcribe', return_timestamps:true });
+        const res = await self._tr(chunk, { language:msg.lang, task:'transcribe', return_timestamps:'word' });
         const off = i * CHUNK_S;
-        (res.chunks || []).forEach(c => {
-          const text = c.text.trim();
-          if (text) segs.push({ start:(c.timestamp[0]||0)+off, end:(c.timestamp[1]||(c.timestamp[0]||0)+3)+off, text });
+        (res.chunks || []).forEach(w => {
+          const t = w.text.trim();
+          if (t) words.push({ text:t, start:(w.timestamp[0]||0)+off, end:(w.timestamp[1]||(w.timestamp[0]||0)+0.5)+off });
         });
       }
+
+      // Agrupa palavras em blocos de ≤35 caracteres → cada bloco é 1 legenda
+      const MAX_CH = 35;
+      const segs = [];
+      let cur = [], curTxt = '';
+      for (const w of words) {
+        const next = curTxt ? curTxt + ' ' + w.text : w.text;
+        if (curTxt && next.length > MAX_CH) {
+          segs.push({ start:cur[0].start, end:cur[cur.length-1].end, text:curTxt });
+          cur = [w]; curTxt = w.text;
+        } else { cur.push(w); curTxt = next; }
+      }
+      if (cur.length) segs.push({ start:cur[0].start, end:cur[cur.length-1].end, text:curTxt });
+
       self.postMessage({ type:'result', segs });
     }
   } catch(err) { self.postMessage({ type:'error', message:err.message }); }
