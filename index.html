@@ -422,8 +422,16 @@ header h1 { font-size: 17px; font-weight: 700; }
               <div id="legLocalSection">
                 <p class="leg-hint">
                   &#127775; <strong>Whisper roda direto no seu browser</strong> — sem conta, sem API key, sem custo.<br>
-                  Na <strong>1&ordf; vez</strong> baixa o modelo (~75&nbsp;MB, salvo no browser). Depois &eacute; instant&acirc;neo.
+                  Na <strong>1&ordf; vez</strong> baixa o modelo escolhido (salvo no browser). Depois &eacute; instant&acirc;neo.
                 </p>
+                <div class="field">
+                  <label>Modelo</label>
+                  <select id="legModel">
+                    <option value="Xenova/whisper-tiny">Tiny (~39&nbsp;MB) &mdash; r&aacute;pido, menos preciso</option>
+                    <option value="Xenova/whisper-base">Base (~145&nbsp;MB) &mdash; equilibrado</option>
+                    <option value="Xenova/whisper-small" selected>Small (~244&nbsp;MB) &mdash; melhor qualidade &#10003;</option>
+                  </select>
+                </div>
                 <div class="field">
                   <label>Idioma</label>
                   <select id="legLangLocal">
@@ -508,10 +516,20 @@ header h1 { font-size: 17px; font-weight: 700; }
                 <div class="field" style="display:flex;flex-direction:column;gap:3px">
                   <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">N&uacute;m. linhas</label>
                   <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;margin-top:5px">
-                    <input type="checkbox" id="legOneLine" checked>
+                    <input type="checkbox" id="legOneLine">
                     <span>S&oacute; 1 linha</span>
                   </label>
                 </div>
+              </div>
+              <div class="leg-row" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+                <div>
+                  <div class="leg-label">&#9998; Corre&ccedil;&atilde;o PT-BR</div>
+                  <div class="leg-sub">pra&rarr;para &middot; t&aacute;&rarr;est&aacute; &middot; num&rarr;em um&hellip;</div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="legCorrect" checked>
+                  <span class="toggle-slider"></span>
+                </label>
               </div>
 
             </div>
@@ -1315,6 +1333,20 @@ async function startProcessing() {
       }
     }
 
+    // Correção PT-BR automática
+    if (subtitles && legMode !== 'off' && legMode !== 'fixed' &&
+        document.getElementById('legCorrect')?.checked) {
+      const { segments: corrFixed, changes: corChanges } = correctSubtitles(subtitles);
+      subtitles = corrFixed;
+      if (corChanges.length) {
+        addLog(`✎ PT-BR: ${corChanges.length} legenda(s) corrigida(s)`, 'ok');
+        corChanges.slice(0, 3).forEach(c => addLog(`  · "${c.original}" → "${c.corrected}"`));
+        if (corChanges.length > 3) addLog(`  · …e mais ${corChanges.length - 3} correção(ões)`);
+      } else {
+        addLog('✓ PT-BR: sem correções necessárias', 'ok');
+      }
+    }
+
     // Remoção de silêncios (análise por vídeo)
     let keepSegsForVideo = null;
     let preDecodedAudio  = null;
@@ -1665,15 +1697,15 @@ const _LANG_MAP = {
 };
 
 // Código do worker — roda em thread separada para não travar a UI
-// Usa whisper-tiny (~39 MB): 3× mais rápido que base, adequado para voz clara
 const _WORKER_SRC = `
 self.onmessage = async function(e) {
   const msg = e.data;
   try {
-    if (!self._tr) {
+    if (!self._tr || self._model !== (msg.model || 'Xenova/whisper-small')) {
       const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
       env.allowLocalModels = false; env.allowRemoteModels = true;
-      self._tr = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny', {
+      self._model = msg.model || 'Xenova/whisper-small';
+      self._tr = await pipeline('automatic-speech-recognition', self._model, {
         quantized: true,
         progress_callback: p => self.postMessage({ type:'progress', status:p.status, name:p.name, progress:p.progress })
       });
@@ -1739,8 +1771,10 @@ async function transcribeWithXenova(file, lang) {
     for (let i = 0; i < mono.length; i++) mono[i] += ch[i] / nCh;
   }
 
+  const model = document.getElementById('legModel')?.value || 'Xenova/whisper-small';
+  const _mSizes = { 'Xenova/whisper-tiny': '~39 MB', 'Xenova/whisper-base': '~145 MB', 'Xenova/whisper-small': '~244 MB' };
   const worker = getXenovaWorker();
-  addLog('Carregando modelo Whisper (1ª vez: ~75 MB, salvo no browser)…', 'warn');
+  addLog(`Carregando modelo Whisper (1ª vez: ${_mSizes[model] || '?'}, salvo no browser)…`, 'warn');
 
   return new Promise((resolve, reject) => {
     const pctSeen = {}; // evita log duplicado por arquivo
@@ -1767,7 +1801,7 @@ async function transcribeWithXenova(file, lang) {
 
     // Transfere o buffer sem copiar (mais rápido para áudios longos)
     const buf = mono.buffer;
-    worker.postMessage({ type:'transcribe', buf, lang: _LANG_MAP[lang] || 'portuguese' }, [buf]);
+    worker.postMessage({ type:'transcribe', buf, lang: _LANG_MAP[lang] || 'portuguese', model }, [buf]);
   });
 }
 
@@ -1834,6 +1868,45 @@ function loadSRTFile(file) {
     el.textContent = `✓ ${_srtSegments.length} legendas carregadas — "${file.name}"`;
   };
   reader.readAsText(file, 'UTF-8');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORREÇÃO AUTOMÁTICA PT-BR
+// ─────────────────────────────────────────────────────────────────────────────
+function correctSubtitleText(t) {
+  // Regra 4: remove marcações de tempo e parênteses
+  t = t.replace(/\(\d{1,2}:\d{2}(?::\d{2})?\)/g, '');
+  t = t.replace(/\([^)]*\)/g, '');
+  // Regra 8: remove travessões
+  t = t.replace(/[—–]/g, '');
+  // Regra 3: substituições obrigatórias (limite de palavra Unicode)
+  const subs = [
+    [/(?<![\p{L}\p{N}])pro(?![\p{L}\p{N}])/giu,  'para o'],
+    [/(?<![\p{L}\p{N}])pra(?![\p{L}\p{N}])/giu,  'para'],
+    [/(?<![\p{L}\p{N}])cê(?![\p{L}\p{N}])/giu,   'você'],
+    [/(?<![\p{L}\p{N}])numa(?![\p{L}\p{N}])/giu, 'em uma'],
+    [/(?<![\p{L}\p{N}])num(?![\p{L}\p{N}])/giu,  'em um'],
+    [/(?<![\p{L}\p{N}])tá(?![\p{L}\p{N}])/giu,   'está'],
+    [/(?<![\p{L}\p{N}])ta(?![\p{L}\p{N}])/giu,   'está'],
+  ];
+  for (const [re, to] of subs) {
+    t = t.replace(re, m =>
+      m[0] === m[0].toUpperCase() && m[0] !== m[0].toLowerCase()
+        ? to[0].toUpperCase() + to.slice(1) : to
+    );
+  }
+  return t.replace(/\s{2,}/g, ' ').trim();
+}
+
+function correctSubtitles(segments) {
+  if (!segments || !segments.length) return { segments, changes: [] };
+  const changes = [];
+  const corrected = segments.map((seg, i) => {
+    const fixed = correctSubtitleText(seg.text || '');
+    if (fixed !== seg.text) changes.push({ i, original: seg.text, corrected: fixed });
+    return { ...seg, text: fixed };
+  });
+  return { segments: corrected, changes };
 }
 
 function parseSRT(text) {
@@ -2061,7 +2134,9 @@ function resetAll() {
   document.getElementById('legMode').value           = 'local';
   document.getElementById('legFixedText').value      = '';
   document.getElementById('legPosY').value           = '500';
-  document.getElementById('legOneLine').checked      = true;
+  document.getElementById('legOneLine').checked      = false;
+  document.getElementById('legModel').value          = 'Xenova/whisper-small';
+  document.getElementById('legCorrect').checked      = true;
   document.getElementById('legLocalSection').style.display = 'block';
   document.getElementById('legFixedSection').style.display = 'none';
   document.getElementById('legApiSection').style.display   = 'none';
