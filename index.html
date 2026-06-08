@@ -287,6 +287,110 @@ header h1 { font-size: 17px; font-weight: 700; }
 
 .info { font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.5; }
 
+/* ── Mode switcher ── */
+.mode-tabs { display: flex; gap: 6px; }
+.mode-tab {
+  padding: 5px 14px; border-radius: 7px; font-size: 12px; font-weight: 600;
+  cursor: pointer; border: 1px solid var(--border); background: transparent;
+  color: var(--muted); transition: all .15s;
+}
+.mode-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.mode-tab:hover:not(.active) { color: var(--text); border-color: #3a3d4e; }
+
+/* ── Cortes IA panel ── */
+#clipsMode {
+  display: none; flex: 1; flex-direction: row; overflow: hidden;
+}
+#clipsMode.active { display: flex; }
+.clips-sidebar {
+  width: 300px; background: var(--sidebar); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
+}
+.clips-sidebar-scroll { flex: 1; overflow-y: auto; padding: 16px; }
+.clips-sidebar-scroll::-webkit-scrollbar { width: 4px; }
+.clips-sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.clips-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.clips-content-scroll { flex: 1; overflow-y: auto; padding: 20px; }
+.clips-content-scroll::-webkit-scrollbar { width: 4px; }
+.clips-content-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.clips-ph {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 12px; height: 100%;
+  color: var(--muted); text-align: center; font-size: 13px;
+}
+.clips-ph svg { opacity: .2; }
+.clips-ph h3 { font-size: 15px; font-weight: 700; color: var(--text); }
+.clip-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px;
+}
+.clip-card {
+  background: var(--card); border: 2px solid var(--border);
+  border-radius: 12px; overflow: hidden; transition: border-color .2s; display: flex; flex-direction: column;
+}
+.clip-card.selected { border-color: var(--accent); }
+.clip-card-header { padding: 12px 14px 8px; }
+.clip-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+  margin-bottom: 7px; text-transform: uppercase; letter-spacing: .4px;
+}
+.clip-badge.inicio  { background: rgba(34,197,94,.12);  color: var(--green); }
+.clip-badge.meio    { background: rgba(108,99,255,.12); color: var(--accent); }
+.clip-badge.fim     { background: rgba(245,158,11,.12); color: var(--yellow); }
+.clip-badge.destaque{ background: rgba(239,68,68,.12);  color: var(--red); }
+.clip-title { font-size: 13px; font-weight: 700; line-height: 1.4; margin-bottom: 5px; }
+.clip-hook  { font-size: 11px; color: var(--muted); line-height: 1.55; margin-bottom: 9px; }
+.clip-meta  {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 10px; color: var(--muted);
+  padding-top: 8px; border-top: 1px solid var(--border);
+}
+.clip-preview-wrap {
+  width: 100%; aspect-ratio: 16/9; background: #000; overflow: hidden; display: none;
+}
+.clip-preview-wrap.show { display: block; }
+.clip-preview-wrap video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.clip-actions {
+  padding: 9px 14px; display: flex; align-items: center; gap: 7px;
+  border-top: 1px solid var(--border);
+}
+.btn-clip-prev {
+  flex: 1; padding: 6px 10px; border-radius: 7px; font-size: 11px; font-weight: 600;
+  background: transparent; color: var(--muted); border: 1px solid var(--border);
+  cursor: pointer; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.btn-clip-prev:hover { color: var(--text); border-color: #3a3d4e; }
+.clip-check {
+  width: 30px; height: 30px; border-radius: 7px; flex-shrink: 0;
+  border: 2px solid var(--border); cursor: pointer; transition: all .15s;
+  background: transparent; color: var(--muted); display: flex; align-items: center; justify-content: center;
+}
+.clip-check.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.clips-action-bar {
+  background: var(--sidebar); border-top: 1px solid var(--border);
+  padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.clips-sel-count { font-size: 12px; color: var(--muted); flex: 1; }
+.btn-proc-clips {
+  padding: 9px 20px; border-radius: 8px; background: var(--accent);
+  color: #fff; font-size: 13px; font-weight: 700; border: none;
+  cursor: pointer; transition: background .15s; display: flex; align-items: center; gap: 7px;
+}
+.btn-proc-clips:hover:not(:disabled) { background: #7c73ff; }
+.btn-proc-clips:disabled { opacity: .4; cursor: not-allowed; }
+.clips-log {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 9px 11px; margin-top: 10px; font-family: monospace; font-size: 11px;
+  max-height: 140px; overflow-y: auto; line-height: 1.65; display: none;
+}
+.clips-log::-webkit-scrollbar { width: 3px; }
+.clips-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.slabel {
+  font-size: 10px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .5px; font-weight: 700; margin: 12px 0 7px;
+}
+.slabel:first-child { margin-top: 0; }
+
 /* ── Canvas area ── */
 .canvas-area {
   flex: 1; display: flex; align-items: center; justify-content: center;
@@ -319,6 +423,10 @@ header h1 { font-size: 17px; font-weight: 700; }
 
 <header>
   <h1>&#9654; Video Template Editor</h1>
+  <div class="mode-tabs">
+    <button class="mode-tab active" id="tabEditor" onclick="setMode('editor')">&#9654; Editor</button>
+    <button class="mode-tab" id="tabClips" onclick="setMode('clips')">&#10024; Cortes IA</button>
+  </div>
   <span class="badge">Processamento local &middot; nenhum dado enviado &agrave; internet</span>
 </header>
 
@@ -620,6 +728,126 @@ header h1 { font-size: 17px; font-weight: 700; }
     </div>
   </div>
 
+</div>
+
+<!-- ── CORTES IA MODE ── -->
+<div id="clipsMode">
+  <div class="clips-sidebar">
+    <div class="clips-sidebar-scroll">
+
+      <div class="slabel">Vídeo da entrevista / podcast</div>
+      <div class="drop" id="clipDrop" onclick="document.getElementById('clipInput').click()">
+        <svg width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <rect x="2" y="6" width="20" height="14" rx="2"/><path d="m10 9 5 3-5 3V9z"/>
+        </svg>
+        Arraste MP4/MOV ou clique para selecionar
+        <input type="file" id="clipInput" accept="video/mp4,video/quicktime,.mp4,.mov" style="display:none">
+      </div>
+      <div id="clipFileName" class="srt-loaded" style="display:none"></div>
+
+      <div class="slabel">Transcri&ccedil;&atilde;o do &aacute;udio</div>
+      <div class="field">
+        <label>M&eacute;todo</label>
+        <select id="clipTransMode" onchange="onClipTransModeChange()">
+          <option value="local">&#127775; Whisper local (sem API)</option>
+          <option value="api">Via API (Groq / OpenAI)</option>
+        </select>
+      </div>
+      <div id="clipLocalSec">
+        <div class="field" style="margin-top:7px">
+          <label>Modelo Whisper</label>
+          <select id="clipModel">
+            <option value="Xenova/whisper-tiny">Tiny (~39&nbsp;MB) &mdash; r&aacute;pido</option>
+            <option value="Xenova/whisper-base">Base (~145&nbsp;MB) &mdash; equilibrado</option>
+            <option value="Xenova/whisper-small" selected>Small (~244&nbsp;MB) &mdash; melhor &#10003;</option>
+          </select>
+        </div>
+      </div>
+      <div id="clipApiSec" style="display:none">
+        <div class="field" style="margin-top:7px">
+          <label>Provedor</label>
+          <select id="clipApiProv" onchange="onClipApiProvChange()">
+            <option value="groq">Groq (gratuito)</option>
+            <option value="openai">OpenAI</option>
+          </select>
+        </div>
+        <div class="field" style="margin-top:6px">
+          <label id="clipApiKeyLbl">Chave Groq API</label>
+          <input type="password" id="clipTransKey" placeholder="gsk_…" autocomplete="off">
+        </div>
+      </div>
+      <div class="field" style="margin-top:7px">
+        <label>Idioma do v&iacute;deo</label>
+        <select id="clipLang">
+          <option value="pt" selected>Portugu&ecirc;s</option>
+          <option value="en">English</option>
+          <option value="es">Espa&ntilde;ol</option>
+          <option value="fr">Fran&ccedil;ais</option>
+          <option value="de">Deutsch</option>
+        </select>
+      </div>
+
+      <div class="slabel">An&aacute;lise por IA</div>
+      <div class="field">
+        <label>Chave Groq API <span style="color:var(--muted)">(Llama 3.3 &mdash; gratuito)</span></label>
+        <input type="password" id="clipAiKey" placeholder="gsk_…" autocomplete="off" oninput="saveClipAiKey()">
+      </div>
+      <p class="leg-hint" style="margin-top:6px">
+        A IA identifica ganchos impactantes, momentos de in&iacute;cio, meio e fim.<br>
+        Conta gratuita em <a href="https://console.groq.com/keys" target="_blank">console.groq.com</a>.
+      </p>
+
+      <div class="field-row" style="margin-top:8px">
+        <div class="field">
+          <label>N&ordm; de cortes</label>
+          <select id="clipCount">
+            <option value="3">3 cortes</option>
+            <option value="5" selected>5 cortes</option>
+            <option value="7">7 cortes</option>
+            <option value="10">10 cortes</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Dur. m&aacute;x.</label>
+          <select id="clipMaxDur">
+            <option value="30">30 s</option>
+            <option value="60" selected>60 s</option>
+            <option value="90">90 s</option>
+            <option value="120">2 min</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="clipAnalyzeBtn" onclick="startClipAnalysis()" style="margin-top:14px" disabled>
+        &#10024; Analisar e gerar cortes
+      </button>
+      <div class="clips-log" id="clipsLog"></div>
+
+    </div>
+    <div class="sidebar-foot">
+      <button class="btn btn-ghost" onclick="resetClips()">&#8635; Limpar</button>
+    </div>
+  </div>
+
+  <div class="clips-content">
+    <div class="clips-content-scroll">
+      <div class="clips-ph" id="clipsPH">
+        <svg width="68" height="68" fill="none" stroke="currentColor" stroke-width=".85" viewBox="0 0 24 24">
+          <path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+        </svg>
+        <h3>Cortes Inteligentes com IA</h3>
+        <span>Fa&ccedil;a upload de uma entrevista ou podcast e a IA<br>identificar&aacute; os melhores momentos para criar cortes.</span>
+      </div>
+      <div class="clip-grid" id="clipGrid" style="display:none"></div>
+    </div>
+    <div class="clips-action-bar" id="clipsActionBar" style="display:none">
+      <span class="clips-sel-count" id="clipSelCount">0 cortes selecionados</span>
+      <button class="btn-proc-clips" id="btnProcClips" onclick="processSelectedClips()" disabled>
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Processar selecionados
+      </button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -2561,6 +2789,533 @@ function buildInlineMuxer() {
   }
 
   return { Muxer, ArrayBufferTarget, StreamTarget, FileSystemWritableFileStreamTarget };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODE SWITCHING
+// ─────────────────────────────────────────────────────────────────────────────
+function setMode(mode) {
+  const isClips = mode === 'clips';
+  document.getElementById('clipsMode').classList.toggle('active', isClips);
+  document.querySelector('.main').style.display = isClips ? 'none' : 'flex';
+  document.getElementById('tabEditor').classList.toggle('active', !isClips);
+  document.getElementById('tabClips').classList.toggle('active', isClips);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORTES IA — STATE
+// ─────────────────────────────────────────────────────────────────────────────
+const CS = {
+  file: null,
+  transcript: null,  // [{start,end,text}]
+  clips: [],         // sugestões da IA
+  selected: new Set()
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORTES IA — FILE UPLOAD
+// ─────────────────────────────────────────────────────────────────────────────
+setupDrop('clipDrop', files => {
+  const f = files.find(f => isVideoFile(f));
+  if (f) loadClipFile(f);
+});
+document.getElementById('clipInput').addEventListener('change', e => {
+  if (e.target.files[0]) loadClipFile(e.target.files[0]);
+});
+
+function loadClipFile(file) {
+  CS.file = file;
+  CS.transcript = null;
+  CS.clips = [];
+  CS.selected.clear();
+  const el = document.getElementById('clipFileName');
+  el.style.display = 'block';
+  el.textContent = '✓ ' + file.name + ' (' + (file.size / 1024 / 1024).toFixed(1) + ' MB)';
+  document.getElementById('clipAnalyzeBtn').disabled = false;
+  document.getElementById('clipGrid').style.display = 'none';
+  document.getElementById('clipGrid').innerHTML = '';
+  document.getElementById('clipsPH').style.display = 'flex';
+  document.getElementById('clipsActionBar').style.display = 'none';
+  clipsLog('Vídeo carregado: ' + file.name, 'ok');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORTES IA — UI HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+function onClipTransModeChange() {
+  const v = document.getElementById('clipTransMode').value;
+  document.getElementById('clipLocalSec').style.display = v === 'local' ? 'block' : 'none';
+  document.getElementById('clipApiSec').style.display   = v === 'api'   ? 'block' : 'none';
+}
+
+function onClipApiProvChange() {
+  const p = document.getElementById('clipApiProv').value;
+  const labels = { groq: ['Chave Groq API', 'gsk_…'], openai: ['Chave OpenAI API', 'sk-…'] };
+  const [lbl, ph] = labels[p] || labels.groq;
+  document.getElementById('clipApiKeyLbl').textContent = lbl;
+  document.getElementById('clipTransKey').placeholder = ph;
+  try {
+    document.getElementById('clipTransKey').value = localStorage.getItem('_api_k_' + p) || '';
+  } catch (_) {}
+}
+
+function saveClipAiKey() {
+  try {
+    const k = document.getElementById('clipAiKey').value.trim();
+    if (k) localStorage.setItem('_clip_ai_key', k);
+    else   localStorage.removeItem('_clip_ai_key');
+  } catch (_) {}
+}
+
+try {
+  const saved = localStorage.getItem('_clip_ai_key');
+  if (saved) document.getElementById('clipAiKey').value = saved;
+} catch (_) {}
+
+function clipsLog(msg, cls = '') {
+  const b = document.getElementById('clipsLog');
+  b.style.display = 'block';
+  const d = document.createElement('div');
+  d.className = 'll ' + cls;
+  d.textContent = msg;
+  b.appendChild(d);
+  b.scrollTop = b.scrollHeight;
+}
+
+function resetClips() {
+  CS.file = null; CS.transcript = null; CS.clips = []; CS.selected.clear();
+  document.getElementById('clipFileName').style.display = 'none';
+  document.getElementById('clipGrid').style.display = 'none';
+  document.getElementById('clipGrid').innerHTML = '';
+  document.getElementById('clipsPH').style.display = 'flex';
+  document.getElementById('clipsActionBar').style.display = 'none';
+  document.getElementById('clipsLog').style.display = 'none';
+  document.getElementById('clipsLog').innerHTML = '';
+  document.getElementById('clipAnalyzeBtn').disabled = true;
+  document.getElementById('clipInput').value = '';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORTES IA — MAIN FLOW
+// ─────────────────────────────────────────────────────────────────────────────
+async function startClipAnalysis() {
+  if (!CS.file) return;
+  const aiKey = document.getElementById('clipAiKey').value.trim();
+  if (!aiKey) {
+    alert('Insira a chave Groq API para análise por IA.');
+    document.getElementById('clipAiKey').focus();
+    return;
+  }
+
+  const btn = document.getElementById('clipAnalyzeBtn');
+  btn.disabled = true;
+  btn.textContent = 'Analisando…';
+  document.getElementById('clipGrid').style.display = 'none';
+  document.getElementById('clipGrid').innerHTML = '';
+  document.getElementById('clipsPH').style.display = 'none';
+  document.getElementById('clipsActionBar').style.display = 'none';
+  CS.selected.clear();
+
+  try {
+    // ── 1. Transcrição ──────────────────────────────────────────────────────
+    clipsLog('Etapa 1/2 — Transcrevendo áudio…', 'warn');
+    const lang   = document.getElementById('clipLang').value;
+    const trMode = document.getElementById('clipTransMode').value;
+
+    let segments;
+    if (trMode === 'local') {
+      const model = document.getElementById('clipModel').value;
+      segments = await transcribeForClips(CS.file, lang, model);
+    } else {
+      const prov   = document.getElementById('clipApiProv').value;
+      const tKey   = document.getElementById('clipTransKey').value.trim();
+      if (!tKey) { alert('Insira a chave API de transcrição.'); throw new Error('sem chave'); }
+      try { localStorage.setItem('_api_k_' + prov, tKey); } catch (_) {}
+      const cfg = _PROVIDER_CFG[prov] || _PROVIDER_CFG.groq;
+      const form = new FormData();
+      const blob = await extractAudioBlob(CS.file);
+      form.append('file', blob, 'audio.wav');
+      form.append('model', cfg.model);
+      form.append('response_format', 'verbose_json');
+      form.append('timestamp_granularities[]', 'segment');
+      if (lang) form.append('language', lang);
+      const res = await fetch(cfg.url, { method: 'POST', headers: { 'Authorization': 'Bearer ' + tKey }, body: form });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error?.message || 'HTTP ' + res.status); }
+      const data = await res.json();
+      segments = (data.segments || []).map(s => ({ start: s.start, end: s.end, text: s.text.trim() }));
+    }
+
+    CS.transcript = segments;
+    clipsLog('✓ Transcrição concluída — ' + segments.length + ' segmentos', 'ok');
+
+    // ── 2. Análise por IA ────────────────────────────────────────────────────
+    clipsLog('Etapa 2/2 — Analisando com IA (Llama 3.3)…', 'warn');
+    const n      = parseInt(document.getElementById('clipCount').value) || 5;
+    const maxDur = parseInt(document.getElementById('clipMaxDur').value) || 60;
+    CS.clips = await analyzeClips(segments, aiKey, n, maxDur);
+    clipsLog('✓ ' + CS.clips.length + ' cortes identificados!', 'ok');
+
+    renderClipCards();
+  } catch (err) {
+    if (err.message !== 'sem chave') clipsLog('✗ Erro: ' + err.message, 'err');
+    document.getElementById('clipsPH').style.display = 'flex';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✨ Analisar e gerar cortes';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORTES IA — TRANSCRIÇÃO LOCAL (reusa worker do Whisper)
+// ─────────────────────────────────────────────────────────────────────────────
+async function transcribeForClips(file, lang, model) {
+  const audioCtx = new AudioContext({ sampleRate: 16000 });
+  const decoded  = await audioCtx.decodeAudioData(await file.arrayBuffer());
+  await audioCtx.close();
+  const nCh = decoded.numberOfChannels;
+  const mono = new Float32Array(decoded.length);
+  for (let c = 0; c < nCh; c++) {
+    const ch = decoded.getChannelData(c);
+    for (let i = 0; i < mono.length; i++) mono[i] += ch[i] / nCh;
+  }
+
+  const _mSizes = { 'Xenova/whisper-tiny': '~39 MB', 'Xenova/whisper-base': '~145 MB', 'Xenova/whisper-small': '~244 MB' };
+  clipsLog('Carregando Whisper (' + (_mSizes[model] || '?') + ', salvo no browser após 1ª vez)…');
+
+  const worker = getXenovaWorker();
+  return new Promise((resolve, reject) => {
+    const seen = {};
+    worker.onmessage = e => {
+      const msg = e.data;
+      if (msg.type === 'progress') {
+        if (msg.status === 'progress' && msg.name && msg.progress != null) {
+          const key = msg.name.split('/').pop();
+          const pct = Math.round(msg.progress / 10) * 10;
+          if (seen[key] !== pct) { seen[key] = pct; clipsLog('  ⬇ ' + key + ': ' + pct + '%'); }
+        } else if (msg.status === 'ready') {
+          clipsLog('✓ Modelo pronto!', 'ok');
+        } else if (msg.status === 'chunk') {
+          clipsLog('  🎤 Trecho ' + msg.current + '/' + msg.total + '…');
+        }
+      } else if (msg.type === 'result') {
+        resolve(msg.segs);
+      } else if (msg.type === 'error') {
+        reject(new Error(msg.message));
+      }
+    };
+    const buf = mono.buffer;
+    worker.postMessage({ type: 'transcribe', buf, lang: _LANG_MAP[lang] || 'portuguese', model }, [buf]);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORTES IA — ANÁLISE COM GROQ / LLAMA
+// ─────────────────────────────────────────────────────────────────────────────
+async function analyzeClips(segments, apiKey, nClips, maxDur) {
+  const totalDur = segments.length ? segments[segments.length - 1].end : 0;
+
+  // Formata transcrição com timestamps para o prompt
+  const transcript = segments.map(s =>
+    '[' + fmtTime(s.start) + '] ' + s.text
+  ).join('\n');
+
+  const prompt = `Você é um especialista em conteúdo viral para redes sociais (Instagram Reels, TikTok, YouTube Shorts).
+
+Analise a transcrição abaixo (de uma entrevista/podcast com duração total de ${fmtTime(totalDur)}) e selecione exatamente ${nClips} cortes que funcionem como conteúdo viral independente.
+
+CRITÉRIOS DE SELEÇÃO:
+1. Gancho impactante nos primeiros 3 segundos (frase que prende atenção imediata)
+2. Momento completo — começa e termina em ponto natural da fala
+3. Duração entre 20s e ${maxDur}s
+4. Distribuir cortes entre início, meio e fim do vídeo
+5. Priorizar: revelações surpreendentes, controvérsias, histórias pessoais, dicas práticas, frases marcantes
+6. Cada corte deve funcionar 100% sem contexto externo
+
+TRANSCRIÇÃO:
+${transcript}
+
+Responda APENAS com JSON válido neste formato exato:
+{
+  "clips": [
+    {
+      "titulo": "Título curto e impactante",
+      "hook": "A frase de abertura que prende atenção",
+      "posicao": "inicio" | "meio" | "fim" | "destaque",
+      "start": 12.5,
+      "end": 67.3,
+      "motivo": "Explicação de por que este corte é viral"
+    }
+  ]
+}`;
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + apiKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.4,
+      response_format: { type: 'json_object' }
+    })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || 'Groq API HTTP ' + res.status);
+  }
+
+  const data = await res.json();
+  let parsed;
+  try {
+    parsed = JSON.parse(data.choices[0].message.content);
+  } catch (_) {
+    throw new Error('Resposta da IA inválida — tente novamente.');
+  }
+
+  const clips = (parsed.clips || []).map((c, i) => ({
+    id: i,
+    titulo:  c.titulo  || 'Corte ' + (i + 1),
+    hook:    c.hook    || '',
+    posicao: c.posicao || 'meio',
+    start:   Math.max(0, parseFloat(c.start) || 0),
+    end:     Math.min(totalDur || 9999, parseFloat(c.end) || 0),
+    motivo:  c.motivo  || ''
+  })).filter(c => c.end > c.start + 3);
+
+  return clips;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORTES IA — RENDERIZAR CARDS
+// ─────────────────────────────────────────────────────────────────────────────
+function renderClipCards() {
+  const grid = document.getElementById('clipGrid');
+  grid.innerHTML = '';
+  CS.selected.clear();
+
+  CS.clips.forEach(clip => {
+    CS.selected.add(clip.id);
+    const dur = clip.end - clip.start;
+    const card = document.createElement('div');
+    card.className = 'clip-card selected';
+    card.id = 'clipcard' + clip.id;
+    card.innerHTML = `
+      <div class="clip-card-header">
+        <div class="clip-badge ${esc(clip.posicao)}">${posLabel(clip.posicao)}</div>
+        <div class="clip-title">${esc(clip.titulo)}</div>
+        <div class="clip-hook">"${esc(clip.hook)}"</div>
+        <div class="clip-meta">
+          <span>&#9200; ${fmtTime(clip.start)} &rarr; ${fmtTime(clip.end)}</span>
+          <span>&#9646; ${dur.toFixed(0)}s</span>
+        </div>
+      </div>
+      <div class="clip-preview-wrap" id="prev${clip.id}"></div>
+      <div class="clip-actions">
+        <button class="btn-clip-prev" onclick="toggleClipPreview(${clip.id})">
+          <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Pré-visualizar
+        </button>
+        <button class="clip-check on" id="chk${clip.id}" onclick="toggleClipSel(${clip.id})" title="Incluir / excluir">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+      </div>`;
+    grid.appendChild(card);
+  });
+
+  grid.style.display = 'grid';
+  document.getElementById('clipsActionBar').style.display = 'flex';
+  updateClipSelCount();
+}
+
+function posLabel(p) {
+  return { inicio: '● Início', meio: '● Meio', fim: '● Fim', destaque: '★ Destaque' }[p] || p;
+}
+
+function toggleClipSel(id) {
+  if (CS.selected.has(id)) CS.selected.delete(id);
+  else                      CS.selected.add(id);
+  const card = document.getElementById('clipcard' + id);
+  const chk  = document.getElementById('chk' + id);
+  card.classList.toggle('selected', CS.selected.has(id));
+  chk.classList.toggle('on', CS.selected.has(id));
+  updateClipSelCount();
+}
+
+function updateClipSelCount() {
+  const n = CS.selected.size;
+  document.getElementById('clipSelCount').textContent = n + ' corte' + (n !== 1 ? 's' : '') + ' selecionado' + (n !== 1 ? 's' : '');
+  document.getElementById('btnProcClips').disabled = n === 0;
+}
+
+// Pré-visualização inline do clip
+function toggleClipPreview(id) {
+  const wrap = document.getElementById('prev' + id);
+  if (wrap.classList.contains('show')) {
+    const v = wrap.querySelector('video');
+    if (v) v.pause();
+    wrap.innerHTML = '';
+    wrap.classList.remove('show');
+    return;
+  }
+  const clip = CS.clips.find(c => c.id === id);
+  if (!clip || !CS.file) return;
+  const url = URL.createObjectURL(CS.file);
+  wrap.innerHTML = `<video controls playsinline></video>`;
+  wrap.classList.add('show');
+  const v = wrap.querySelector('video');
+  v.src = url;
+  v.currentTime = clip.start;
+  v.addEventListener('loadedmetadata', () => { v.currentTime = clip.start; v.play(); });
+  v.addEventListener('timeupdate', () => { if (v.currentTime >= clip.end) { v.pause(); v.currentTime = clip.start; } });
+  v.addEventListener('emptied', () => URL.revokeObjectURL(url), { once: true });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORTES IA — PROCESSAR CORTES SELECIONADOS
+// ─────────────────────────────────────────────────────────────────────────────
+async function processSelectedClips() {
+  if (!CS.file || CS.selected.size === 0) return;
+
+  // Verifica se o template está carregado; se não, processa sem template (fullscreen)
+  const hasTemplate = !!S.tplImg;
+  if (!hasTemplate) {
+    const ok = confirm(
+      'Nenhum template carregado.\n\n' +
+      'Os cortes serão exportados SEM template (vídeo original recortado em tempo).\n\n' +
+      'Para usar seu template, volte ao Editor e faça o upload primeiro.'
+    );
+    if (!ok) return;
+  }
+
+  const btn = document.getElementById('btnProcClips');
+  btn.disabled = true;
+  btn.textContent = 'Processando…';
+  clipsLog('─'.repeat(30));
+  clipsLog('Iniciando processamento de ' + CS.selected.size + ' corte(s)…', 'warn');
+
+  const selClips = CS.clips.filter(c => CS.selected.has(c.id));
+
+  // Garante muxer carregado
+  try { await ensureMuxer(); } catch (e) { clipsLog('✗ ' + e.message, 'err'); btn.disabled = false; btn.textContent = 'Processar selecionados'; return; }
+
+  for (let i = 0; i < selClips.length; i++) {
+    const clip = selClips[i];
+    clipsLog('[' + (i + 1) + '/' + selClips.length + '] ' + clip.titulo + ' (' + fmtTime(clip.start) + '→' + fmtTime(clip.end) + ')');
+
+    // Monta segmento de fala = só o trecho do clip
+    const keepSegs = [{ start: clip.start, end: clip.end }];
+
+    // Legendas do trecho (subset da transcrição)
+    let subtitles = null;
+    if (CS.transcript && CS.transcript.length) {
+      subtitles = CS.transcript
+        .filter(s => s.end > clip.start && s.start < clip.end)
+        .map(s => ({
+          start: s.start - clip.start,
+          end:   s.end   - clip.start,
+          text:  s.text
+        }));
+    }
+
+    try {
+      let result;
+      if (hasTemplate) {
+        // Usa o pipeline normal com template
+        const fakeVid = { file: CS.file, name: clip.titulo };
+        result = await processOne(fakeVid, subtitles, keepSegs, null);
+      } else {
+        result = await processClipRaw(CS.file, clip, keepSegs);
+      }
+      const safeName = clip.titulo.replace(/[^a-z0-9\-_ ]/gi, '_').trim();
+      addDownload(result.url, safeName + '_corte.' + result.ext);
+      clipsLog('✓ ' + clip.titulo, 'ok');
+    } catch (err) {
+      clipsLog('✗ ' + clip.titulo + ': ' + err.message, 'err');
+    }
+  }
+
+  clipsLog('Concluído!', 'ok');
+  btn.disabled = false;
+  btn.textContent = 'Processar selecionados';
+
+  // Volta para o editor para ver os downloads
+  if (completedVideos.length) {
+    setMode('editor');
+    setTimeout(showGallery, 300);
+  }
+}
+
+// Processa clip sem template — vídeo em resolução original, só recorta o tempo
+async function processClipRaw(file, clip, keepSegs) {
+  const { Muxer, ArrayBufferTarget } = await ensureMuxer();
+
+  const videoEl = document.createElement('video');
+  videoEl.playsInline = true; videoEl.muted = true;
+  videoEl.src = URL.createObjectURL(file);
+  await new Promise((res, rej) => {
+    videoEl.addEventListener('canplay', res, { once: true });
+    videoEl.addEventListener('error', () => rej(new Error('Erro ao carregar vídeo')), { once: true });
+  });
+
+  const W = videoEl.videoWidth  || 1080;
+  const H = videoEl.videoHeight || 1920;
+  const FPS = 30;
+
+  const offCanvas = new OffscreenCanvas(W, H);
+  const ctx = offCanvas.getContext('2d', { alpha: false });
+
+  const target = new ArrayBufferTarget();
+  const muxer  = new Muxer({ target, video: { codec: 'avc', width: W, height: H }, firstTimestampBehavior: 'offset', fastStart: 'in-memory' });
+
+  let vcCodec = null;
+  for (const codec of ['avc1.640028','avc1.4D4028','avc1.42002A']) {
+    try { const r = await VideoEncoder.isConfigSupported({ codec, width: W, height: H, bitrate: 6_000_000, framerate: FPS, avc: { format: 'avc' } }); if (r.supported) { vcCodec = codec; break; } } catch (_) {}
+  }
+  if (!vcCodec) throw new Error('H.264 não suportado.');
+
+  const videoEncoder = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error:  e => console.error(e)
+  });
+  videoEncoder.configure({ codec: vcCodec, width: W, height: H, bitrate: 6_000_000, framerate: FPS, avc: { format: 'avc' } });
+
+  videoEl.currentTime = clip.start;
+  await new Promise(r => videoEl.addEventListener('seeked', r, { once: true }));
+  await videoEl.play().catch(() => {});
+
+  await new Promise(resolve => {
+    let fi = 0, done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    videoEl.addEventListener('ended', () => setTimeout(finish, 100), { once: true });
+
+    videoEl.requestVideoFrameCallback(function onF(now, meta) {
+      if (done) return;
+      if (meta.mediaTime >= clip.end + 0.05) { finish(); return; }
+      ctx.drawImage(videoEl, 0, 0, W, H);
+      const tsUs = Math.round(getOutputTime(meta.mediaTime, keepSegs) * 1_000_000);
+      let vf;
+      try {
+        vf = new VideoFrame(offCanvas, { timestamp: tsUs, duration: Math.round(1e6 / FPS) });
+        videoEncoder.encode(vf, { keyFrame: fi % 60 === 0 });
+        vf.close();
+      } catch (_) { try { if (vf) vf.close(); } catch (__) {} }
+      fi++;
+      if (!videoEl.ended) videoEl.requestVideoFrameCallback(onF);
+      else finish();
+    });
+  });
+
+  await videoEncoder.flush();
+  videoEncoder.close();
+  muxer.finalize();
+  videoEl.pause();
+  URL.revokeObjectURL(videoEl.src);
+
+  const blob = new Blob([target.buffer], { type: 'video/mp4' });
+  return { url: URL.createObjectURL(blob), ext: 'mp4' };
 }
 </script>
 </body>
