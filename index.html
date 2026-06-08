@@ -3278,12 +3278,11 @@ function toggleClipPreview(id) {
 async function processSelectedClips() {
   if (!CS.file || CS.selected.size === 0) return;
 
-  // Verifica se o template está carregado; se não, processa sem template (fullscreen)
   const hasTemplate = !!S.tplImg;
   if (!hasTemplate) {
     const ok = confirm(
       'Nenhum template carregado.\n\n' +
-      'Os cortes serão exportados SEM template (vídeo original recortado em tempo).\n\n' +
+      'Os cortes serão exportados SEM template (vídeo recortado em tempo).\n\n' +
       'Para usar seu template, volte ao Editor e faça o upload primeiro.'
     );
     if (!ok) return;
@@ -3297,36 +3296,45 @@ async function processSelectedClips() {
 
   const selClips = CS.clips.filter(c => CS.selected.has(c.id));
 
-  // Garante muxer carregado
-  try { await ensureMuxer(); } catch (e) { clipsLog('✗ ' + e.message, 'err'); btn.disabled = false; btn.textContent = 'Processar selecionados'; return; }
+  try { await ensureMuxer(); } catch (e) {
+    clipsLog('✗ ' + e.message, 'err');
+    btn.disabled = false; btn.textContent = 'Processar selecionados'; return;
+  }
+
+  // Pré-decodifica áudio UMA vez para todos os cortes — garante sincronismo correto
+  clipsLog('Decodificando áudio…', 'warn');
+  let preAudio = null;
+  try {
+    const ac = new AudioContext({ sampleRate: 44100 });
+    preAudio = await ac.decodeAudioData(await CS.file.arrayBuffer());
+    await ac.close();
+    clipsLog('✓ Áudio pronto (' + preAudio.duration.toFixed(1) + 's)', 'ok');
+  } catch (ae) {
+    clipsLog('Aviso: áudio não decodificado — ' + ae.message, 'warn');
+  }
 
   for (let i = 0; i < selClips.length; i++) {
     const clip = selClips[i];
-    clipsLog('[' + (i + 1) + '/' + selClips.length + '] ' + clip.titulo + ' (' + fmtTime(clip.start) + '→' + fmtTime(clip.end) + ')');
+    clipsLog('[' + (i + 1) + '/' + selClips.length + '] ' + clip.titulo +
+             ' (' + fmtTime(clip.start) + ' → ' + fmtTime(clip.end) + ')');
 
-    // Monta segmento de fala = só o trecho do clip
     const keepSegs = [{ start: clip.start, end: clip.end }];
 
-    // Legendas do trecho (subset da transcrição)
+    // Legendas: mantém timestamps ORIGINAIS do vídeo
+    // (processOne faz lookup via meta.mediaTime, que é o tempo original)
     let subtitles = null;
     if (CS.transcript && CS.transcript.length) {
-      subtitles = CS.transcript
-        .filter(s => s.end > clip.start && s.start < clip.end)
-        .map(s => ({
-          start: s.start - clip.start,
-          end:   s.end   - clip.start,
-          text:  s.text
-        }));
+      const sub = CS.transcript.filter(s => s.end > clip.start && s.start < clip.end);
+      if (sub.length) subtitles = sub;
     }
 
     try {
       let result;
       if (hasTemplate) {
-        // Usa o pipeline normal com template
         const fakeVid = { file: CS.file, name: clip.titulo };
-        result = await processOne(fakeVid, subtitles, keepSegs, null);
+        result = await processOne(fakeVid, subtitles, keepSegs, preAudio);
       } else {
-        result = await processClipRaw(CS.file, clip, keepSegs);
+        result = await processClipRaw(CS.file, clip, keepSegs, preAudio);
       }
       const safeName = clip.titulo.replace(/[^a-z0-9\-_ ]/gi, '_').trim();
       addDownload(result.url, safeName + '_corte.' + result.ext);
@@ -3340,7 +3348,6 @@ async function processSelectedClips() {
   btn.disabled = false;
   btn.textContent = 'Processar selecionados';
 
-  // Volta para o editor para ver os downloads
   if (completedVideos.length) {
     setMode('editor');
     setTimeout(showGallery, 300);
@@ -3348,26 +3355,30 @@ async function processSelectedClips() {
 }
 
 // Processa clip sem template — vídeo em resolução original, só recorta o tempo
-async function processClipRaw(file, clip, keepSegs) {
+async function processClipRaw(file, clip, keepSegs, preDecodedAudio) {
   const { Muxer, ArrayBufferTarget } = await ensureMuxer();
 
   const videoEl = document.createElement('video');
   videoEl.playsInline = true; videoEl.muted = true;
   videoEl.src = URL.createObjectURL(file);
   await new Promise((res, rej) => {
-    videoEl.addEventListener('canplay', res, { once: true });
+    videoEl.addEventListener('loadedmetadata', res, { once: true });
     videoEl.addEventListener('error', () => rej(new Error('Erro ao carregar vídeo')), { once: true });
   });
 
-  const W = videoEl.videoWidth  || 1080;
-  const H = videoEl.videoHeight || 1920;
+  const W   = videoEl.videoWidth  || 1080;
+  const H   = videoEl.videoHeight || 1920;
   const FPS = 30;
+  const _nCh = preDecodedAudio ? Math.min(preDecodedAudio.numberOfChannels, 2) : 2;
+  const _sr  = preDecodedAudio ? preDecodedAudio.sampleRate : 44100;
 
   const offCanvas = new OffscreenCanvas(W, H);
   const ctx = offCanvas.getContext('2d', { alpha: false });
 
-  const target = new ArrayBufferTarget();
-  const muxer  = new Muxer({ target, video: { codec: 'avc', width: W, height: H }, firstTimestampBehavior: 'offset', fastStart: 'in-memory' });
+  const target  = new ArrayBufferTarget();
+  const muxCfg  = { target, video: { codec: 'avc', width: W, height: H }, firstTimestampBehavior: 'offset', fastStart: 'in-memory' };
+  if (preDecodedAudio) muxCfg.audio = { codec: 'aac', numberOfChannels: _nCh, sampleRate: _sr };
+  const muxer = new Muxer(muxCfg);
 
   let vcCodec = null;
   for (const codec of ['avc1.640028','avc1.4D4028','avc1.42002A']) {
@@ -3377,9 +3388,18 @@ async function processClipRaw(file, clip, keepSegs) {
 
   const videoEncoder = new VideoEncoder({
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-    error:  e => console.error(e)
+    error:  e => console.error('[VideoEncoder]', e)
   });
   videoEncoder.configure({ codec: vcCodec, width: W, height: H, bitrate: 6_000_000, framerate: FPS, avc: { format: 'avc' } });
+
+  let audioEncoder = null;
+  if (preDecodedAudio) {
+    audioEncoder = new AudioEncoder({
+      output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+      error:  e => console.error('[AudioEncoder]', e)
+    });
+    audioEncoder.configure({ codec: 'mp4a.40.2', numberOfChannels: _nCh, sampleRate: _sr, bitrate: 128_000 });
+  }
 
   videoEl.currentTime = clip.start;
   await new Promise(r => videoEl.addEventListener('seeked', r, { once: true }));
@@ -3409,6 +3429,13 @@ async function processClipRaw(file, clip, keepSegs) {
 
   await videoEncoder.flush();
   videoEncoder.close();
+
+  if (audioEncoder && preDecodedAudio) {
+    try { await encodeAudioFromBuffer(preDecodedAudio, keepSegs, audioEncoder, _sr); } catch (_) {}
+    await audioEncoder.flush();
+    audioEncoder.close();
+  }
+
   muxer.finalize();
   videoEl.pause();
   URL.revokeObjectURL(videoEl.src);
