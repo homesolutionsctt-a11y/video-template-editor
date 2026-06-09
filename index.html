@@ -241,6 +241,18 @@ header h1 { font-size: 17px; font-weight: 700; }
 }
 .gcard-dl:hover { background: rgba(34,197,94,.28); }
 
+/* ── Botão de download no card de clip ── */
+.clip-dl-btn {
+  display:inline-flex; align-items:center; gap:5px; padding:5px 12px;
+  background:linear-gradient(135deg,#7c3aed,#a855f7); color:#fff;
+  border-radius:7px; font-size:12px; font-weight:600; text-decoration:none;
+  border:none; cursor:pointer; transition:opacity .15s;
+}
+.clip-dl-btn:hover { opacity:.85; }
+.clip-dl-btn.success { background:linear-gradient(135deg,#16a34a,#22c55e); }
+.clip-card.processing { opacity:.7; pointer-events:none; }
+.clip-proc-prog { font-size:11px; color:var(--muted); margin-top:4px; }
+
 /* ── Score bar ── */
 .score-bar-wrap { margin-top:7px; }
 .score-label { font-size:10px; color:var(--muted); display:flex; justify-content:space-between; margin-bottom:3px; }
@@ -863,6 +875,13 @@ header h1 { font-size: 17px; font-weight: 700; }
         </div>
       </div>
 
+      <div class="slabel" style="margin-top:14px">Velocidade de exportação</div>
+      <select id="clipSpeed" style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg2);color:var(--fg);font-size:13px">
+        <option value="2">Normal — 2× (qualidade total)</option>
+        <option value="4">Rápido — 4× (teste, 15 fps)</option>
+        <option value="1">HD — 1× (máxima qualidade)</option>
+      </select>
+
       <button class="btn btn-primary" id="clipAnalyzeBtn" onclick="startClipAnalysis()" style="margin-top:14px" disabled>
         &#10024; Analisar e gerar cortes
       </button>
@@ -885,11 +904,21 @@ header h1 { font-size: 17px; font-weight: 700; }
       </div>
       <div class="clip-grid" id="clipGrid" style="display:none"></div>
     </div>
+    <!-- Barra de progresso de exportação individual -->
+    <div id="clipExportBar" style="display:none;padding:10px 20px;background:var(--bg2);border-top:1px solid var(--border);flex-direction:column;gap:6px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)">
+        <span id="clipExportLabel">Exportando…</span>
+        <span id="clipExportPct">0%</span>
+      </div>
+      <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+        <div id="clipExportFill" style="height:100%;width:0%;background:linear-gradient(90deg,#7c3aed,#a855f7);border-radius:3px;transition:width .3s"></div>
+      </div>
+    </div>
     <div class="clips-action-bar" id="clipsActionBar" style="display:none">
       <span class="clips-sel-count" id="clipSelCount">0 cortes selecionados</span>
       <button class="btn-proc-clips" id="btnProcClips" onclick="processSelectedClips()" disabled>
         <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        Processar selecionados
+        Exportar cortes selecionados
       </button>
     </div>
   </div>
@@ -3462,31 +3491,29 @@ function toggleClipPreview(id) {
 async function processSelectedClips() {
   if (!CS.file || CS.selected.size === 0) return;
 
-  const hasTemplate = !!S.tplImg;
-  if (!hasTemplate) {
-    const ok = confirm(
-      'Nenhum template carregado.\n\n' +
-      'Os cortes serão exportados SEM template (vídeo recortado em tempo).\n\n' +
-      'Para usar seu template, volte ao Editor e faça o upload primeiro.'
-    );
-    if (!ok) return;
-  }
+  const btn      = document.getElementById('btnProcClips');
+  const expBar   = document.getElementById('clipExportBar');
+  const expLabel = document.getElementById('clipExportLabel');
+  const expPct   = document.getElementById('clipExportPct');
+  const expFill  = document.getElementById('clipExportFill');
 
-  const btn = document.getElementById('btnProcClips');
   btn.disabled = true;
-  btn.textContent = 'Processando…';
+  btn.textContent = 'Exportando…';
+  expBar.style.display = 'flex';
   clipsLog('─'.repeat(30));
-  clipsLog('Iniciando processamento de ' + CS.selected.size + ' corte(s)…', 'warn');
+  clipsLog('Iniciando exportação de ' + CS.selected.size + ' corte(s)…', 'warn');
 
   const selClips = CS.clips.filter(c => CS.selected.has(c.id));
+  const speed    = parseFloat(document.getElementById('clipSpeed')?.value) || 2;
 
   try { await ensureMuxer(); } catch (e) {
-    clipsLog('✗ ' + e.message, 'err');
-    btn.disabled = false; btn.textContent = 'Processar selecionados'; return;
+    clipsLog('✗ mp4-muxer: ' + e.message, 'err');
+    btn.disabled = false; btn.textContent = 'Exportar cortes selecionados';
+    expBar.style.display = 'none'; return;
   }
 
-  // Pré-decodifica áudio UMA vez para todos os cortes — garante sincronismo correto
-  clipsLog('Decodificando áudio…', 'warn');
+  // Pré-decodifica áudio UMA vez para todos os cortes
+  clipsLog('Decodificando áudio do vídeo…', 'warn');
   let preAudio = null;
   try {
     const ac = new AudioContext({ sampleRate: 44100 });
@@ -3494,159 +3521,246 @@ async function processSelectedClips() {
     await ac.close();
     clipsLog('✓ Áudio pronto (' + preAudio.duration.toFixed(1) + 's)', 'ok');
   } catch (ae) {
-    clipsLog('Aviso: áudio não decodificado — ' + ae.message, 'warn');
+    clipsLog('Aviso: áudio não pré-decodificado — ' + ae.message, 'warn');
   }
 
+  let nOk = 0;
   for (let i = 0; i < selClips.length; i++) {
     const clip = selClips[i];
+    const dur  = clip.end - clip.start;
+
+    // Atualiza barra de progresso global
+    const globalPct = Math.round((i / selClips.length) * 100);
+    expLabel.textContent = 'Exportando ' + (i + 1) + '/' + selClips.length + ': ' + clip.titulo;
+    expPct.textContent   = globalPct + '%';
+    expFill.style.width  = globalPct + '%';
+
+    // Marca card como "em processamento"
+    const card = document.getElementById('clipcard' + clip.id);
+    if (card) { card.classList.add('processing'); }
+
     clipsLog('[' + (i + 1) + '/' + selClips.length + '] ' + clip.titulo +
-             ' (' + fmtTime(clip.start) + ' → ' + fmtTime(clip.end) + ')');
+             ' — ' + fmtTime(clip.start) + ' → ' + fmtTime(clip.end) + ' (' + dur.toFixed(0) + 's)');
 
     const keepSegs = [{ start: clip.start, end: clip.end }];
 
-    // Legendas: mantém timestamps ORIGINAIS do vídeo
-    // (processOne faz lookup via meta.mediaTime, que é o tempo original)
     let subtitles = null;
     if (CS.transcript && CS.transcript.length) {
       const sub = CS.transcript.filter(s => s.end > clip.start && s.start < clip.end);
       if (sub.length) subtitles = sub;
     }
 
-    // Word-level timings para legendas animadas (timestamps originais do vídeo)
     let wordTimings = null;
-    const animEnabled = document.getElementById('clipAnimCap')?.checked;
-    if (animEnabled && CS.words && CS.words.length) {
+    if (document.getElementById('clipAnimCap')?.checked && CS.words && CS.words.length) {
       const wSlice = CS.words.filter(w => w.end > clip.start && w.start < clip.end);
       if (wSlice.length) wordTimings = wSlice;
     }
 
     try {
-      let result;
-      if (hasTemplate) {
-        const fakeVid = { file: CS.file, name: clip.titulo };
-        result = await processOne(fakeVid, subtitles, keepSegs, preAudio, wordTimings);
-      } else {
-        result = await processClipRaw(CS.file, clip, keepSegs, preAudio, wordTimings);
+      const result = await processClipRaw(CS.file, clip, keepSegs, preAudio, wordTimings, speed);
+      const safeName = (clip.titulo || 'corte_' + (i + 1)).replace(/[^a-z0-9\-_ ]/gi, '_').trim();
+      const dlName   = safeName + '.mp4';
+
+      // Adiciona botão de download diretamente no card (sem redirecionar para editor)
+      if (card) {
+        card.classList.remove('processing');
+        const actRow = card.querySelector('.clip-actions');
+        if (actRow) {
+          const existing = actRow.querySelector('.clip-dl-btn');
+          if (existing) existing.remove();
+          const a = document.createElement('a');
+          a.className = 'clip-dl-btn success';
+          a.href = result.url; a.download = dlName;
+          a.innerHTML = `<svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 16V4m0 12-4-4m4 4 4-4M4 20h16"/></svg> Baixar`;
+          actRow.prepend(a);
+          // Auto-download
+          const tmp = document.createElement('a');
+          tmp.href = result.url; tmp.download = dlName;
+          document.body.appendChild(tmp); tmp.click(); document.body.removeChild(tmp);
+        }
       }
-      const safeName = clip.titulo.replace(/[^a-z0-9\-_ ]/gi, '_').trim();
-      addDownload(result.url, safeName + '_corte.' + result.ext);
-      clipsLog('✓ ' + clip.titulo, 'ok');
+
+      clipsLog('✓ ' + clip.titulo + ' — pronto! (' + dlName + ')', 'ok');
+      nOk++;
     } catch (err) {
-      clipsLog('✗ ' + clip.titulo + ': ' + err.message, 'err');
+      if (card) card.classList.remove('processing');
+      clipsLog('✗ ' + clip.titulo + ': ' + (err.message || String(err)), 'err');
     }
   }
 
-  clipsLog('Concluído!', 'ok');
-  btn.disabled = false;
-  btn.textContent = 'Processar selecionados';
+  expLabel.textContent = nOk + ' de ' + selClips.length + ' cortes exportados!';
+  expPct.textContent   = '100%';
+  expFill.style.width  = '100%';
+  expFill.style.background = nOk === selClips.length
+    ? 'linear-gradient(90deg,#16a34a,#22c55e)'
+    : 'linear-gradient(90deg,#f59e0b,#d97706)';
 
-  if (completedVideos.length) {
-    setMode('editor');
-    setTimeout(showGallery, 300);
-  }
+  clipsLog(nOk + '/' + selClips.length + ' cortes exportados com sucesso!', nOk ? 'ok' : 'err');
+  btn.disabled = false;
+  btn.textContent = 'Exportar cortes selecionados';
 }
 
-// Processa clip sem template — vídeo em resolução original, só recorta o tempo
-async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings = null) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Exporta um único clip como arquivo MP4 independente (WebCodecs re-encode)
+// ─────────────────────────────────────────────────────────────────────────────
+async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings = null, playbackSpeed = 2) {
   const { Muxer, ArrayBufferTarget } = await ensureMuxer();
+  const clipDur = clip.end - clip.start;
+  if (clipDur <= 0) throw new Error('Duração do clip inválida');
 
+  // ── Cria e adiciona vídeo ao DOM (necessário para RVFC confiável no Chrome) ──
   const videoEl = document.createElement('video');
-  videoEl.playsInline = true; videoEl.muted = true;
-  videoEl.src = URL.createObjectURL(file);
-  await new Promise((res, rej) => {
-    videoEl.addEventListener('loadedmetadata', res, { once: true });
-    videoEl.addEventListener('error', () => rej(new Error('Erro ao carregar vídeo')), { once: true });
-  });
+  videoEl.playsInline = true;
+  videoEl.muted       = true;
+  videoEl.preload     = 'auto';
+  // Posiciona fora da tela mas no DOM — garante que o browser decodifica os frames
+  videoEl.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0;pointer-events:none';
+  document.body.appendChild(videoEl);
 
-  const W   = videoEl.videoWidth  || 1080;
-  const H   = videoEl.videoHeight || 1920;
-  const FPS = 30;
-  const _nCh = preDecodedAudio ? Math.min(preDecodedAudio.numberOfChannels, 2) : 2;
-  const _sr  = preDecodedAudio ? preDecodedAudio.sampleRate : 44100;
+  const srcUrl = URL.createObjectURL(file);
+  videoEl.src  = srcUrl;
 
-  const offCanvas = new OffscreenCanvas(W, H);
-  const ctx = offCanvas.getContext('2d', { alpha: false });
-
-  const target  = new ArrayBufferTarget();
-  const muxCfg  = { target, video: { codec: 'avc', width: W, height: H }, firstTimestampBehavior: 'offset', fastStart: 'in-memory' };
-  if (preDecodedAudio) muxCfg.audio = { codec: 'aac', numberOfChannels: _nCh, sampleRate: _sr };
-  const muxer = new Muxer(muxCfg);
-
-  let vcCodec = null;
-  for (const codec of ['avc1.640028','avc1.4D4028','avc1.42002A']) {
-    try { const r = await VideoEncoder.isConfigSupported({ codec, width: W, height: H, bitrate: 5_000_000, framerate: FPS, avc: { format: 'avc' } }); if (r.supported) { vcCodec = codec; break; } } catch (_) {}
-  }
-  if (!vcCodec) throw new Error('H.264 não suportado.');
-
-  const videoEncoder = new VideoEncoder({
-    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-    error:  e => console.error('[VideoEncoder]', e)
-  });
-  videoEncoder.configure({ codec: vcCodec, width: W, height: H, bitrate: 5_000_000, framerate: FPS, latencyMode: 'realtime', avc: { format: 'avc' } });
-
-  let audioEncoder = null;
-  if (preDecodedAudio) {
-    audioEncoder = new AudioEncoder({
-      output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
-      error:  e => console.error('[AudioEncoder]', e)
+  try {
+    // Aguarda metadados
+    await new Promise((res, rej) => {
+      const to = setTimeout(() => rej(new Error('Timeout ao carregar vídeo (metadados)')), 20_000);
+      videoEl.addEventListener('loadedmetadata', () => { clearTimeout(to); res(); }, { once: true });
+      videoEl.addEventListener('error', () => { clearTimeout(to); rej(new Error('Erro ao carregar vídeo: ' + (videoEl.error?.message || '?'))); }, { once: true });
     });
-    audioEncoder.configure({ codec: 'mp4a.40.2', numberOfChannels: _nCh, sampleRate: _sr, bitrate: 128_000 });
-  }
 
-  videoEl.currentTime = clip.start;
-  await new Promise(r => videoEl.addEventListener('seeked', r, { once: true }));
-  await videoEl.play().catch(() => {});
-  // 2× no caminho sem template: áudio já pré-decodificado, vídeo pode rodar 2× sem consequência
-  if (preDecodedAudio) videoEl.playbackRate = 2;
+    const W   = videoEl.videoWidth  || 1080;
+    const H   = videoEl.videoHeight || 1920;
+    const FPS = 30;
+    const _nCh = preDecodedAudio ? Math.min(preDecodedAudio.numberOfChannels, 2) : 2;
+    const _sr  = preDecodedAudio ? preDecodedAudio.sampleRate : 44100;
 
-  await new Promise(resolve => {
-    let fi = 0, done = false, lastMT = -1;
-    const finish = () => { if (!done) { done = true; resolve(); } };
-    videoEl.addEventListener('ended', () => setTimeout(finish, 100), { once: true });
+    // Canvas off-screen para composição
+    const offCanvas = new OffscreenCanvas(W, H);
+    const ctx = offCanvas.getContext('2d', { alpha: false });
 
-    videoEl.requestVideoFrameCallback(function onF(now, meta) {
-      if (done) return;
-      if (meta.mediaTime >= clip.end + 0.05) { finish(); return; }
-      // Dedup: RVFC mais rápido que source fps → mesmo frame repetido
-      if (Math.abs(meta.mediaTime - lastMT) < 0.001) { videoEl.requestVideoFrameCallback(onF); return; }
-      lastMT = meta.mediaTime;
-      ctx.drawImage(videoEl, 0, 0, W, H);
-      const useAnim = wordTimings && wordTimings.length &&
-        document.getElementById('clipAnimCap') && document.getElementById('clipAnimCap').checked;
-      if (useAnim) {
-        const capFontSize = parseInt(document.getElementById('clipFontSize')?.value) || 56;
-        const capHlColor  = document.getElementById('clipHlColor')?.value || '#FFE135';
-        const capPosY     = parseInt(document.getElementById('clipPosY')?.value)     || 420;
-        drawAnimatedWords(ctx, wordTimings, meta.mediaTime, W, H, capPosY, capFontSize, capHlColor);
-      }
-      const tsUs = Math.round(getOutputTime(meta.mediaTime, keepSegs) * 1_000_000);
-      let vf;
+    // mp4-muxer
+    const target = new ArrayBufferTarget();
+    const muxCfg = { target, video: { codec: 'avc', width: W, height: H }, firstTimestampBehavior: 'offset', fastStart: 'in-memory' };
+    if (preDecodedAudio) muxCfg.audio = { codec: 'aac', numberOfChannels: _nCh, sampleRate: _sr };
+    const muxer = new Muxer(muxCfg);
+
+    // VideoEncoder
+    let vcCodec = null;
+    for (const codec of ['avc1.640028', 'avc1.4D4028', 'avc1.42002A']) {
       try {
-        vf = new VideoFrame(offCanvas, { timestamp: tsUs, duration: Math.round(1e6 / FPS) });
-        videoEncoder.encode(vf, { keyFrame: fi % 150 === 0 });
-        vf.close();
-      } catch (_) { try { if (vf) vf.close(); } catch (__) {} }
-      fi++;
-      if (!videoEl.ended) videoEl.requestVideoFrameCallback(onF);
-      else finish();
+        const r = await VideoEncoder.isConfigSupported({ codec, width: W, height: H, bitrate: 5_000_000, framerate: FPS, avc: { format: 'avc' } });
+        if (r.supported) { vcCodec = codec; break; }
+      } catch (_) {}
+    }
+    if (!vcCodec) throw new Error('H.264 não suportado neste browser (use Chrome 94+).');
+
+    const videoEncoder = new VideoEncoder({
+      output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      error:  e => { throw new Error('VideoEncoder: ' + e.message); }
     });
-  });
+    videoEncoder.configure({ codec: vcCodec, width: W, height: H, bitrate: 5_000_000, framerate: FPS, latencyMode: 'realtime', avc: { format: 'avc' } });
 
-  await videoEncoder.flush();
-  videoEncoder.close();
+    let audioEncoder = null;
+    if (preDecodedAudio) {
+      audioEncoder = new AudioEncoder({
+        output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+        error:  e => console.error('[AudioEncoder]', e)
+      });
+      audioEncoder.configure({ codec: 'mp4a.40.2', numberOfChannels: _nCh, sampleRate: _sr, bitrate: 128_000 });
+    }
 
-  if (audioEncoder && preDecodedAudio) {
-    try { await encodeAudioFromBuffer(preDecodedAudio, keepSegs, audioEncoder, _sr); } catch (_) {}
-    await audioEncoder.flush();
-    audioEncoder.close();
+    // Seek para o início do clip
+    videoEl.currentTime = clip.start;
+    await new Promise((res, rej) => {
+      const to = setTimeout(() => rej(new Error('Timeout no seek inicial')), 15_000);
+      videoEl.addEventListener('seeked', () => { clearTimeout(to); res(); }, { once: true });
+    });
+
+    // Play mudo
+    await videoEl.play().catch(e => { throw new Error('play() falhou: ' + e.message); });
+    if (preDecodedAudio) videoEl.playbackRate = playbackSpeed;
+
+    // Timeout global: (duração do clip / velocidade) + 30s de folga
+    const frameTimeout = ((clipDur / playbackSpeed) + 30) * 1000;
+
+    // ── Loop de captura de frames ──
+    await new Promise((resolve, reject) => {
+      let fi = 0, done = false, lastMT = -1;
+      const timeoutId = setTimeout(() => {
+        if (!done) reject(new Error('Timeout na captura de frames (' + clipDur.toFixed(0) + 's clip)'));
+      }, frameTimeout);
+
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timeoutId);
+        resolve();
+      };
+
+      videoEl.addEventListener('ended', () => setTimeout(finish, 200), { once: true });
+
+      videoEl.requestVideoFrameCallback(function onF(now, meta) {
+        if (done) return;
+
+        // Clip terminou
+        if (meta.mediaTime >= clip.end + 0.08) { finish(); return; }
+
+        // Dedup: mesmo frame (RVFC disparou mas vídeo não avançou)
+        if (Math.abs(meta.mediaTime - lastMT) < 0.0005) {
+          videoEl.requestVideoFrameCallback(onF); return;
+        }
+        lastMT = meta.mediaTime;
+
+        // Desenha frame no canvas
+        ctx.drawImage(videoEl, 0, 0, W, H);
+
+        // Legendas animadas ou nenhuma
+        if (wordTimings && wordTimings.length && document.getElementById('clipAnimCap')?.checked) {
+          drawAnimatedWords(
+            ctx, wordTimings, meta.mediaTime, W, H,
+            parseInt(document.getElementById('clipPosY')?.value)     || 420,
+            parseInt(document.getElementById('clipFontSize')?.value) || 56,
+            document.getElementById('clipHlColor')?.value            || '#FFE135'
+          );
+        }
+
+        // Timestamp de saída: mapeia clip.start→0, clip.end→clipDur
+        const tsUs  = Math.round(getOutputTime(meta.mediaTime, keepSegs) * 1_000_000);
+        const durUs = Math.round(1_000_000 / FPS);
+
+        let vf;
+        try {
+          vf = new VideoFrame(offCanvas, { timestamp: tsUs, duration: durUs });
+          videoEncoder.encode(vf, { keyFrame: fi % 150 === 0 });
+          vf.close();
+        } catch (e) { try { if (vf) vf.close(); } catch (_) {} }
+
+        fi++;
+        if (!videoEl.ended && !done) videoEl.requestVideoFrameCallback(onF);
+        else if (videoEl.ended) finish();
+      });
+    });
+
+    // Finaliza encoders
+    await videoEncoder.flush();
+    videoEncoder.close();
+
+    if (audioEncoder && preDecodedAudio) {
+      await encodeAudioFromBuffer(preDecodedAudio, keepSegs, audioEncoder, _sr).catch(() => {});
+      await audioEncoder.flush();
+      audioEncoder.close();
+    }
+
+    muxer.finalize();
+
+    const blob = new Blob([target.buffer], { type: 'video/mp4' });
+    return { url: URL.createObjectURL(blob), ext: 'mp4' };
+
+  } finally {
+    videoEl.pause();
+    URL.revokeObjectURL(srcUrl);
+    if (videoEl.parentNode) videoEl.parentNode.removeChild(videoEl);
   }
-
-  muxer.finalize();
-  videoEl.pause();
-  URL.revokeObjectURL(videoEl.src);
-
-  const blob = new Blob([target.buffer], { type: 'video/mp4' });
-  return { url: URL.createObjectURL(blob), ext: 'mp4' };
 }
 </script>
 </body>
