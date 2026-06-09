@@ -241,6 +241,19 @@ header h1 { font-size: 17px; font-weight: 700; }
 }
 .gcard-dl:hover { background: rgba(34,197,94,.28); }
 
+/* ── Score bar ── */
+.score-bar-wrap { margin-top:7px; }
+.score-label { font-size:10px; color:var(--muted); display:flex; justify-content:space-between; margin-bottom:3px; }
+.score-bar { height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
+.score-fill { height:100%; border-radius:2px; transition:width .4s; }
+.score-hi  { background: linear-gradient(90deg,#22c55e,#16a34a); }
+.score-mid { background: linear-gradient(90deg,#f59e0b,#d97706); }
+.score-lo  { background: linear-gradient(90deg,#ef4444,#dc2626); }
+.score-num { font-size:11px; font-weight:700; }
+.score-num.hi  { color:var(--green); }
+.score-num.mid { color:var(--yellow); }
+.score-num.lo  { color:var(--red); }
+
 /* ── Toggle switch ── */
 .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
 .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
@@ -820,6 +833,36 @@ header h1 { font-size: 17px; font-weight: 700; }
         </div>
       </div>
 
+      <div class="slabel" style="margin-top:14px">Legendas nos cortes</div>
+      <div class="leg-panel" style="padding:10px 12px">
+        <div class="leg-row">
+          <div>
+            <div class="leg-label">&#127381; Legendas animadas</div>
+            <div class="leg-sub">Palavra em destaque (estilo Opus Clips)</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="clipAnimCap" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div id="clipCapSettings" style="margin-top:9px;display:flex;flex-direction:column;gap:7px">
+          <div class="field-row">
+            <div class="field">
+              <label>Cor do destaque</label>
+              <input type="color" id="clipHlColor" value="#FFE135">
+            </div>
+            <div class="field">
+              <label>Tam. fonte (px)</label>
+              <input type="number" id="clipFontSize" value="56" min="28" max="100">
+            </div>
+          </div>
+          <div class="field">
+            <label>Posi&ccedil;&atilde;o Y (px do fundo)</label>
+            <input type="number" id="clipPosY" value="420" min="0" max="1800" step="10">
+          </div>
+        </div>
+      </div>
+
       <button class="btn btn-primary" id="clipAnalyzeBtn" onclick="startClipAnalysis()" style="margin-top:14px" disabled>
         &#10024; Analisar e gerar cortes
       </button>
@@ -1180,7 +1223,7 @@ async function ensureMuxer() {
 // PROCESSING  —  WebCodecs + mp4-muxer
 // Produz MP4 padrão (moov no início) → compatível com WhatsApp / iOS / Android
 // ─────────────────────────────────────────────────────────────────────────────
-async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudio = null) {
+async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudio = null, wordTimings = null) {
   const { x: szX, y: szY, w: szW, h: szH } = S.sz;
   const W = S.imgW, H = S.imgH;
   const FPS = 30;
@@ -1394,7 +1437,14 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
       }
 
       // ── Legenda (queimada no frame) ──
-      if (subtitles && subtitles.length) {
+      const useAnimCap = wordTimings && wordTimings.length &&
+        document.getElementById('clipAnimCap') && document.getElementById('clipAnimCap').checked;
+      if (useAnimCap) {
+        const capFontSize = parseInt(document.getElementById('clipFontSize')?.value) || 56;
+        const capHlColor  = document.getElementById('clipHlColor')?.value || '#FFE135';
+        const capPosY     = parseInt(document.getElementById('clipPosY')?.value)     || 420;
+        drawAnimatedWords(procCtx, wordTimings, meta.mediaTime, W, H, capPosY, capFontSize, capHlColor);
+      } else if (subtitles && subtitles.length) {
         const sub = subtitles.find(s => meta.mediaTime >= s.start && meta.mediaTime <= s.end);
         if (sub && sub.text) {
           const fSize  = parseInt(document.getElementById('legSize').value)  || 52;
@@ -1973,7 +2023,7 @@ self.onmessage = async function(e) {
       }
       if (cur.length) segs.push({ start:cur[0].start, end:cur[cur.length-1].end, text:curTxt });
 
-      self.postMessage({ type:'result', segs });
+      self.postMessage({ type:'result', segs, words });
     }
   } catch(err) { self.postMessage({ type:'error', message:err.message }); }
 };
@@ -2285,6 +2335,102 @@ function drawCaption(ctx, text, W, H, posY, fontSize, color, oneLine) {
   ctx.shadowColor = 'rgba(0,0,0,0.8)';
   ctx.shadowBlur  = Math.round(fontSize * 0.12);
   lines.forEach((ln, i) => ctx.fillText(ln, W / 2, by + pad + i * lh));
+
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Legendas animadas estilo Opus Clips: palavra atual em destaque, janela de 6w
+// ─────────────────────────────────────────────────────────────────────────────
+function drawAnimatedWords(ctx, words, currentTime, W, H, posY, fontSize, hlColor) {
+  if (!words || words.length === 0) return;
+
+  // Encontra a palavra atual
+  let curIdx = -1;
+  for (let i = 0; i < words.length; i++) {
+    if (currentTime >= words[i].start && currentTime < words[i].end) { curIdx = i; break; }
+  }
+  // Se entre palavras, pega a mais recente anterior
+  if (curIdx === -1) {
+    for (let i = words.length - 1; i >= 0; i--) {
+      if (currentTime >= words[i].start) { curIdx = i; break; }
+    }
+  }
+  if (curIdx === -1) return;
+
+  const WND = 6; // palavras visíveis por linha
+  const MAX_LINES = 2;
+  const windowStart = Math.max(0, curIdx - Math.floor(WND / 2));
+  const windowEnd   = Math.min(words.length, windowStart + WND * MAX_LINES);
+  const visible     = words.slice(windowStart, windowEnd);
+
+  ctx.save();
+  const pad  = Math.round(fontSize * 0.45);
+  const lh   = Math.round(fontSize * 1.4);
+  const maxW = W - pad * 4;
+
+  ctx.font         = `bold ${fontSize}px 'Segoe UI', Arial, sans-serif`;
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'top';
+
+  // Agrupa palavras em linhas
+  const lines = [];
+  let curLine = [], curLineW = 0;
+  for (const w of visible) {
+    const tw = ctx.measureText(w.text + ' ').width;
+    if (curLine.length > 0 && curLineW + tw > maxW) {
+      lines.push(curLine);
+      curLine = [w]; curLineW = tw;
+    } else {
+      curLine.push(w); curLineW += tw;
+    }
+    if (lines.length >= MAX_LINES - 1 && curLine.length > 0) break;
+  }
+  if (curLine.length) lines.push(curLine);
+
+  const totalH = lines.length * lh + pad * 2;
+  const boxW   = Math.min(maxW + pad * 2, W - pad * 2);
+  const bx     = (W - boxW) / 2;
+  const by     = Math.max(pad, Math.round(H - totalH - posY));
+
+  // Fundo semitransparente
+  ctx.fillStyle = 'rgba(0,0,0,0.72)';
+  if (ctx.roundRect) {
+    ctx.beginPath(); ctx.roundRect(bx, by, boxW, totalH, Math.round(fontSize * 0.3)); ctx.fill();
+  } else { ctx.fillRect(bx, by, boxW, totalH); }
+
+  // Desenha palavra a palavra (destacando a atual)
+  let ly = by + pad;
+  for (const line of lines) {
+    // Calcula largura total da linha para centralizar
+    const lineW = line.reduce((s, w) => s + ctx.measureText(w.text + ' ').width, 0);
+    let lx = (W - lineW) / 2;
+    for (const w of line) {
+      const isCurrent = (w === words[curIdx]);
+      const tw = ctx.measureText(w.text + ' ').width;
+      if (isCurrent) {
+        // Realce amarelo com fundo escuro
+        const ww = ctx.measureText(w.text).width;
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        if (ctx.roundRect) {
+          ctx.beginPath(); ctx.roundRect(lx - 3, ly - 1, ww + 6, fontSize + 2, 4); ctx.fill();
+        }
+        ctx.fillStyle   = hlColor || '#FFE135';
+        ctx.shadowColor = 'rgba(0,0,0,0.9)';
+        ctx.shadowBlur  = Math.round(fontSize * 0.15);
+        ctx.fillText(w.text, lx, ly);
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.fillStyle   = 'rgba(255,255,255,0.88)';
+        ctx.shadowColor = 'rgba(0,0,0,0.7)';
+        ctx.shadowBlur  = Math.round(fontSize * 0.1);
+        ctx.fillText(w.text, lx, ly);
+        ctx.shadowBlur = 0;
+      }
+      lx += tw;
+    }
+    ly += lh;
+  }
 
   ctx.restore();
 }
@@ -2810,6 +2956,7 @@ function setMode(mode) {
 const CS = {
   file: null,
   transcript: null,  // [{start,end,text}]
+  words: [],         // [{text,start,end}] — nível de palavra para legendas animadas
   clips: [],         // sugestões da IA
   selected: new Set()
 };
@@ -3002,6 +3149,7 @@ async function transcribeForClips(file, lang, model) {
           clipsLog('  🎤 Trecho ' + msg.current + '/' + msg.total + '…');
         }
       } else if (msg.type === 'result') {
+        CS.words = msg.words || [];
         resolve(msg.segs);
       } else if (msg.type === 'error') {
         reject(new Error(msg.message));
@@ -3015,28 +3163,32 @@ async function transcribeForClips(file, lang, model) {
 // ─────────────────────────────────────────────────────────────────────────────
 // CORTES IA — ANÁLISE HEURÍSTICA (sem API)
 // ─────────────────────────────────────────────────────────────────────────────
+// CORTES IA — ANÁLISE HEURÍSTICA (sem API, com score 0-100)
+// ─────────────────────────────────────────────────────────────────────────────
 function analyzeClipsHeuristic(segments, nClips, maxDur) {
   if (!segments || segments.length === 0) return [];
 
   const totalDur = segments[segments.length - 1].end;
-  const minDur   = 20;
+  const minDur   = 15;
 
-  // Palavras-gancho em PT (indicam inícios impactantes)
-  const hookWords = [
+  const HOOKS_PT = [
     'como','por que','porque','quando','quem','qual','nunca','sempre',
     'melhor','pior','segredo','verdade','importante','descobri','aprendi',
     'incrível','surpreendente','errei','mudou','tudo','ninguém','todo mundo',
-    'precisa','deve','pode','vou','fui','foi','estava','eu acho','na verdade'
+    'precisa','deve','eu nunca','você sabia','a verdade','o problema','foi quando',
+    'o maior','o pior','o melhor','anos atrás','na época','até hoje','desde então'
   ];
+  // Palavras de alto impacto emocional
+  const EMOTIONAL = ['chorei','emocionado','medo','ansiedade','depressão','amor','ódio',
+    'raiva','feliz','triste','sozinho','família','filho','mãe','pai','perdi','ganhei',
+    'fracassei','consegui','impossível','inacreditável','nunca esqueci','mudou minha vida'];
 
-  // Encontra pontos de corte naturais (pausas entre segmentos > 0.3s)
   const breaks = [0];
   for (let i = 1; i < segments.length; i++) {
-    if (segments[i].start - segments[i - 1].end > 0.3) breaks.push(segments[i].start);
+    if (segments[i].start - segments[i - 1].end > 0.25) breaks.push(segments[i].start);
   }
   breaks.push(totalDur);
 
-  // Gera candidatos: todas as janelas válidas entre pontos de corte
   const candidates = [];
   for (let si = 0; si < breaks.length - 1; si++) {
     const clipStart = breaks[si];
@@ -3049,30 +3201,32 @@ function analyzeClipsHeuristic(segments, nClips, maxDur) {
       const segs = segments.filter(s => s.end > clipStart && s.start < clipEnd);
       if (!segs.length) continue;
 
-      const text      = segs.map(s => s.text).join(' ');
-      const wordCount = text.split(/\s+/).length;
+      const text      = segs.map(s => s.text).join(' ').toLowerCase();
       const firstTxt  = segs[0].text.toLowerCase();
-      const hasHook   = hookWords.some(w => firstTxt.startsWith(w) || firstTxt.includes(' ' + w + ' '));
+      const wordCount = text.split(/\s+/).length;
       const posRatio  = clipStart / totalDur;
-      // pontuação: palavras densas + gancho + duração próxima de 45s
-      const score = wordCount * 0.08 + (hasHook ? 6 : 0) + Math.max(0, 45 - Math.abs(dur - 45)) * 0.06;
-      const zone  = posRatio < 0.33 ? 'inicio' : posRatio < 0.66 ? 'meio' : 'fim';
 
-      candidates.push({ start: clipStart, end: clipEnd, dur, score, zone, text });
+      // Score composto (0-100)
+      const hookScore     = HOOKS_PT.some(w => firstTxt.startsWith(w) || firstTxt.slice(0,40).includes(w)) ? 25 : 0;
+      const emotionScore  = EMOTIONAL.filter(w => text.includes(w)).length * 8;
+      const densityScore  = Math.min(25, (wordCount / dur) * 3); // palavras/s
+      const durScore      = Math.max(0, 20 - Math.abs(dur - 45) * 0.4); // ideal ~45s
+      const posScore      = posRatio < 0.15 ? 10 : posRatio > 0.85 ? 8 : 5; // início/fim têm mais impacto
+      const rawScore      = Math.min(100, hookScore + emotionScore + densityScore + durScore + posScore);
+      const zone          = posRatio < 0.33 ? 'inicio' : posRatio < 0.66 ? 'meio' : 'fim';
+
+      candidates.push({ start: clipStart, end: clipEnd, dur, score: Math.round(rawScore), zone, text });
     }
   }
 
   if (!candidates.length) {
-    // Fallback: divide o vídeo em N partes iguais
     return Array.from({ length: nClips }, (_, i) => {
-      const s = Math.max(0, (totalDur / nClips) * i - 2);
+      const s = Math.max(0, (totalDur / nClips) * i);
       const e = Math.min(s + Math.min(maxDur, totalDur / nClips), totalDur);
-      const zones = ['inicio','meio','meio','fim','destaque'];
-      return { id: i, titulo: 'Corte ' + (i + 1), hook: '', posicao: zones[i] || 'meio', start: s, end: e, motivo: 'Divisão automática' };
+      return { id: i, titulo: 'Corte ' + (i + 1), hook: '', posicao: ['inicio','meio','meio','fim','destaque'][i] || 'meio', start: s, end: e, motivo: 'Divisão automática', score: 50 };
     });
   }
 
-  // Seleciona com diversidade de posição (1 de cada zona, depois completa pelo score)
   candidates.sort((a, b) => b.score - a.score);
   const selected = [];
   const noOverlap = c => !selected.some(s => c.start < s.end && c.end > s.start);
@@ -3087,77 +3241,85 @@ function analyzeClipsHeuristic(segments, nClips, maxDur) {
     if (noOverlap(c)) selected.push(c);
   }
 
-  const posLabels = { inicio: 'inicio', meio: 'meio', fim: 'fim' };
   return selected.slice(0, nClips).map((c, i) => {
-    const words = c.text.split(/\s+/);
-    const hook  = words.slice(0, 10).join(' ');
+    const ws   = c.text.split(/\s+/);
+    const hook = ws.slice(0, 12).join(' ');
     return {
       id:      i,
-      titulo:  'Corte ' + (i + 1) + ' — ' + words.slice(0, 5).join(' ') + '…',
-      hook:    hook,
-      posicao: posLabels[c.zone] || 'meio',
+      titulo:  'Corte ' + (i + 1) + ' — ' + ws.slice(0, 6).join(' ') + '…',
+      hook,
+      posicao: c.zone,
       start:   c.start,
       end:     c.end,
-      motivo:  'Selecionado por densidade de fala e posição'
+      motivo:  'Score heurístico: ' + c.score + '/100',
+      score:   c.score
     };
   });
 }
 
-function _clipsOverlap(a, b) {
-  return a.start < b.end && a.end > b.start;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// CORTES IA — ANÁLISE COM GROQ / LLAMA
+// CORTES IA — ANÁLISE COM GROQ / LLAMA 3.3 (prompt otimizado para viral)
 // ─────────────────────────────────────────────────────────────────────────────
 async function analyzeClips(segments, apiKey, nClips, maxDur) {
   const totalDur = segments.length ? segments[segments.length - 1].end : 0;
 
-  // Formata transcrição com timestamps para o prompt
   const transcript = segments.map(s =>
-    '[' + fmtTime(s.start) + '] ' + s.text
+    '[' + fmtTime(s.start) + '-' + fmtTime(s.end) + '] ' + s.text
   ).join('\n');
 
-  const prompt = `Você é um especialista em conteúdo viral para redes sociais (Instagram Reels, TikTok, YouTube Shorts).
+  const prompt = `Você é um editor de vídeo especialista em criação de shorts virais para TikTok, Instagram Reels e YouTube Shorts.
 
-Analise a transcrição abaixo (de uma entrevista/podcast com duração total de ${fmtTime(totalDur)}) e selecione exatamente ${nClips} cortes que funcionem como conteúdo viral independente.
+Analise a transcrição abaixo de um vídeo longo (${fmtTime(totalDur)} de duração) e identifique EXATAMENTE ${nClips} momentos que gerariam os melhores shorts virais.
 
-CRITÉRIOS DE SELEÇÃO:
-1. Gancho impactante nos primeiros 3 segundos (frase que prende atenção imediata)
-2. Momento completo — começa e termina em ponto natural da fala
-3. Duração entre 20s e ${maxDur}s
-4. Distribuir cortes entre início, meio e fim do vídeo
-5. Priorizar: revelações surpreendentes, controvérsias, histórias pessoais, dicas práticas, frases marcantes
-6. Cada corte deve funcionar 100% sem contexto externo
+REGRAS OBRIGATÓRIAS:
+- Cada corte deve ter entre 15s e ${maxDur}s
+- Começar SEMPRE num ponto natural de fala (início de frase, não no meio)
+- Terminar num ponto natural (fim de pensamento, pausa longa)
+- Distribuir: pelo menos 1 do início (0-33%), 1 do meio (33-66%), 1 do fim (66-100%)
+- Cada corte deve funcionar completamente SOZINHO, sem contexto do vídeo maior
+- Os timestamps devem ser exatos (em segundos decimais como 45.5, 112.3)
 
-TRANSCRIÇÃO:
+PRIORIZE (em ordem):
+1. Revelações impactantes ou surpreendentes
+2. Histórias pessoais emocionais (superação, fracasso, conquista)
+3. Conselhos práticos e acionáveis
+4. Opiniões polêmicas ou contrárias ao senso comum
+5. Momentos de humor genuíno
+6. Frases marcantes que ficam na memória
+
+SCORE DE VIRALIDADE (0-100):
+- 90-100: Gancho nos 3 primeiros segundos + emoção forte + conclusão satisfatória
+- 70-89: Bom gancho + conteúdo valioso
+- 50-69: Interessante mas sem gancho forte
+- Abaixo de 50: Não selecionar
+
+TRANSCRIÇÃO (formato [início-fim] texto):
 ${transcript}
 
-Responda APENAS com JSON válido neste formato exato:
+Responda SOMENTE com JSON válido:
 {
   "clips": [
     {
-      "titulo": "Título curto e impactante",
-      "hook": "A frase de abertura que prende atenção",
-      "posicao": "inicio" | "meio" | "fim" | "destaque",
+      "titulo": "Título curtíssimo e impactante (max 8 palavras)",
+      "hook": "Primeira frase exata que abre o clip (deve prender em 3s)",
+      "posicao": "inicio|meio|fim|destaque",
       "start": 12.5,
       "end": 67.3,
-      "motivo": "Explicação de por que este corte é viral"
+      "score": 87,
+      "motivo": "Por que este momento é viral (1 frase)"
     }
   ]
 }`;
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      'Authorization': 'Bearer ' + apiKey,
-      'Content-Type': 'application/json'
-    },
+    headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],
-      temperature: 0.4,
-      response_format: { type: 'json_object' }
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+      max_tokens: 2048
     })
   });
 
@@ -3168,23 +3330,19 @@ Responda APENAS com JSON válido neste formato exato:
 
   const data = await res.json();
   let parsed;
-  try {
-    parsed = JSON.parse(data.choices[0].message.content);
-  } catch (_) {
-    throw new Error('Resposta da IA inválida — tente novamente.');
-  }
+  try { parsed = JSON.parse(data.choices[0].message.content); }
+  catch (_) { throw new Error('Resposta da IA inválida — tente novamente.'); }
 
-  const clips = (parsed.clips || []).map((c, i) => ({
-    id: i,
+  return (parsed.clips || []).map((c, i) => ({
+    id:      i,
     titulo:  c.titulo  || 'Corte ' + (i + 1),
     hook:    c.hook    || '',
     posicao: c.posicao || 'meio',
     start:   Math.max(0, parseFloat(c.start) || 0),
     end:     Math.min(totalDur || 9999, parseFloat(c.end) || 0),
-    motivo:  c.motivo  || ''
-  })).filter(c => c.end > c.start + 3);
-
-  return clips;
+    motivo:  c.motivo  || '',
+    score:   Math.min(100, Math.max(0, parseInt(c.score) || 70))
+  })).filter(c => c.end > c.start + 5);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3197,16 +3355,30 @@ function renderClipCards() {
 
   CS.clips.forEach(clip => {
     CS.selected.add(clip.id);
-    const dur = clip.end - clip.start;
+    const dur   = clip.end - clip.start;
+    const score = clip.score != null ? clip.score : null;
+    const scoreCls = score == null ? '' : score >= 80 ? 'score-hi' : score >= 55 ? 'score-mid' : 'score-lo';
+    const scoreBar = score != null ? `
+      <div class="score-bar-wrap">
+        <div class="score-label"><span>Viralidade</span><span><b>${score}</b>/100</span></div>
+        <div class="score-bar"><div class="score-fill ${scoreCls}" style="width:${score}%"></div></div>
+      </div>` : '';
+    const motivoHtml = clip.motivo ? `<div class="clip-hook" style="font-style:normal;color:var(--muted);margin-top:4px;font-size:11px">${esc(clip.motivo)}</div>` : '';
+
     const card = document.createElement('div');
     card.className = 'clip-card selected';
     card.id = 'clipcard' + clip.id;
     card.innerHTML = `
       <div class="clip-card-header">
-        <div class="clip-badge ${esc(clip.posicao)}">${posLabel(clip.posicao)}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="clip-badge ${esc(clip.posicao)}">${posLabel(clip.posicao)}</div>
+          ${score != null ? `<div class="clip-badge" style="background:${score>=80?'#166534':score>=55?'#92400e':'#7f1d1d'};color:#fff">${score >= 80 ? '🔥' : score >= 55 ? '⚡' : '·'} ${score}/100</div>` : ''}
+        </div>
         <div class="clip-title">${esc(clip.titulo)}</div>
-        <div class="clip-hook">"${esc(clip.hook)}"</div>
-        <div class="clip-meta">
+        ${clip.hook ? `<div class="clip-hook">"${esc(clip.hook)}"</div>` : ''}
+        ${motivoHtml}
+        ${scoreBar}
+        <div class="clip-meta" style="margin-top:6px">
           <span>&#9200; ${fmtTime(clip.start)} &rarr; ${fmtTime(clip.end)}</span>
           <span>&#9646; ${dur.toFixed(0)}s</span>
         </div>
@@ -3328,13 +3500,21 @@ async function processSelectedClips() {
       if (sub.length) subtitles = sub;
     }
 
+    // Word-level timings para legendas animadas (timestamps originais do vídeo)
+    let wordTimings = null;
+    const animEnabled = document.getElementById('clipAnimCap')?.checked;
+    if (animEnabled && CS.words && CS.words.length) {
+      const wSlice = CS.words.filter(w => w.end > clip.start && w.start < clip.end);
+      if (wSlice.length) wordTimings = wSlice;
+    }
+
     try {
       let result;
       if (hasTemplate) {
         const fakeVid = { file: CS.file, name: clip.titulo };
-        result = await processOne(fakeVid, subtitles, keepSegs, preAudio);
+        result = await processOne(fakeVid, subtitles, keepSegs, preAudio, wordTimings);
       } else {
-        result = await processClipRaw(CS.file, clip, keepSegs, preAudio);
+        result = await processClipRaw(CS.file, clip, keepSegs, preAudio, wordTimings);
       }
       const safeName = clip.titulo.replace(/[^a-z0-9\-_ ]/gi, '_').trim();
       addDownload(result.url, safeName + '_corte.' + result.ext);
@@ -3355,7 +3535,7 @@ async function processSelectedClips() {
 }
 
 // Processa clip sem template — vídeo em resolução original, só recorta o tempo
-async function processClipRaw(file, clip, keepSegs, preDecodedAudio) {
+async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings = null) {
   const { Muxer, ArrayBufferTarget } = await ensureMuxer();
 
   const videoEl = document.createElement('video');
@@ -3414,6 +3594,14 @@ async function processClipRaw(file, clip, keepSegs, preDecodedAudio) {
       if (done) return;
       if (meta.mediaTime >= clip.end + 0.05) { finish(); return; }
       ctx.drawImage(videoEl, 0, 0, W, H);
+      const useAnim = wordTimings && wordTimings.length &&
+        document.getElementById('clipAnimCap') && document.getElementById('clipAnimCap').checked;
+      if (useAnim) {
+        const capFontSize = parseInt(document.getElementById('clipFontSize')?.value) || 56;
+        const capHlColor  = document.getElementById('clipHlColor')?.value || '#FFE135';
+        const capPosY     = parseInt(document.getElementById('clipPosY')?.value)     || 420;
+        drawAnimatedWords(ctx, wordTimings, meta.mediaTime, W, H, capPosY, capFontSize, capHlColor);
+      }
       const tsUs = Math.round(getOutputTime(meta.mediaTime, keepSegs) * 1_000_000);
       let vf;
       try {
