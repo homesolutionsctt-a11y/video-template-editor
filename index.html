@@ -1324,11 +1324,12 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
     throw new Error('H.264 não suportado neste browser. Use Chrome 94+.');
   }
   videoEncoder.configure({
-    codec:   vcCodec,
-    width:   W,
-    height:  H,
-    bitrate: 6_000_000,
-    framerate: FPS,
+    codec:        vcCodec,
+    width:        W,
+    height:       H,
+    bitrate:      5_000_000,
+    framerate:    FPS,
+    latencyMode:  'realtime',
     avc: { format: 'avc' }
   });
 
@@ -1376,26 +1377,31 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
     addLog('Autoplay bloqueou áudio — este vídeo será mudo', 'warn');
   }
 
+  // Modo rápido: 2× no caminho de áudio pré-decodificado (cortes IA)
+  // O RVFC ainda dispara 60×/s e captura todos os frames únicos do source (30fps),
+  // mas o vídeo avança 2× mais rápido → metade do tempo de processamento.
+  if (preDecodedAudio) videoEl.playbackRate = 2;
+
   procLabel.style.display = 'block';
 
   // ── Loop de frames via requestVideoFrameCallback ──────────────────────────
-  // Quando keepSegs está ativo, pulamos os silêncios via seek — muito mais
-  // rápido do que tocar o vídeo completo, pois só processamos os trechos de fala.
   {
     const totalDur = videoEl.duration || 0;
     const keepDur  = keepSegs ? keepSegs.reduce((s, g) => s + g.end - g.start, 0) : totalDur;
     const nSegs    = keepSegs ? keepSegs.length : 1;
-    addLog(`▶ Codificando ${fmtTime(totalDur)} de vídeo (${nSegs} seg → saída ~${fmtTime(keepDur)})…`);
-    if (keepSegs) addLog(`⚡ Modo seek: processa só ${fmtTime(keepDur)} de fala (pula silêncios).`, 'ok');
+    const speedTag = preDecodedAudio ? ' ⚡2×' : '';
+    addLog(`▶ Codificando ${fmtTime(totalDur)} de vídeo (${nSegs} seg → saída ~${fmtTime(keepDur)})${speedTag}…`);
+    if (keepSegs) addLog(`⚡ Modo seek: processa só ${fmtTime(keepDur)} de fala.`, 'ok');
     else if (totalDur > 90) addLog(`ℹ️ Vídeo longo (~${Math.ceil(totalDur/60)} min) — aguarde.`, 'warn');
   }
 
   await new Promise((resolve) => {
-    let finished    = false;
-    let frameIndex  = 0;
-    let isSeeking   = false;
-    let lastProgLog = -15;
-    let encodedDur  = 0; // acumulado de fala já processada (para progresso real)
+    let finished      = false;
+    let frameIndex    = 0;
+    let isSeeking     = false;
+    let lastProgLog   = -15;
+    let encodedDur    = 0;
+    let lastMediaTime = -1; // dedup: pula frames repetidos
 
     const finish = () => {
       if (finished) return;
@@ -1410,6 +1416,12 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
     function onFrame(now, meta) {
       if (finished) return;
       if (_cancelProcessing) { finish(); return; }
+
+      // Dedup: mesmo frame apresentado duas vezes (RVFC mais rápido que source fps)
+      if (Math.abs(meta.mediaTime - lastMediaTime) < 0.001) {
+        videoEl.requestVideoFrameCallback(onFrame); return;
+      }
+      lastMediaTime = meta.mediaTime;
 
       // ── Verifica se estamos em silêncio → pula para o próximo segmento ──
       if (keepSegs && !isInKeepSeg(meta.mediaTime, keepSegs)) {
@@ -1463,7 +1475,7 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
       let vf;
       try {
         vf = new VideoFrame(procCanvas, { timestamp: tsUs, duration: durUs });
-        videoEncoder.encode(vf, { keyFrame: frameIndex % 60 === 0 });
+        videoEncoder.encode(vf, { keyFrame: frameIndex % 150 === 0 });
         vf.close();
       } catch (e) { try { if (vf) vf.close(); } catch (_) {} }
       frameIndex++;
@@ -3562,7 +3574,7 @@ async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings
 
   let vcCodec = null;
   for (const codec of ['avc1.640028','avc1.4D4028','avc1.42002A']) {
-    try { const r = await VideoEncoder.isConfigSupported({ codec, width: W, height: H, bitrate: 6_000_000, framerate: FPS, avc: { format: 'avc' } }); if (r.supported) { vcCodec = codec; break; } } catch (_) {}
+    try { const r = await VideoEncoder.isConfigSupported({ codec, width: W, height: H, bitrate: 5_000_000, framerate: FPS, avc: { format: 'avc' } }); if (r.supported) { vcCodec = codec; break; } } catch (_) {}
   }
   if (!vcCodec) throw new Error('H.264 não suportado.');
 
@@ -3570,7 +3582,7 @@ async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error:  e => console.error('[VideoEncoder]', e)
   });
-  videoEncoder.configure({ codec: vcCodec, width: W, height: H, bitrate: 6_000_000, framerate: FPS, avc: { format: 'avc' } });
+  videoEncoder.configure({ codec: vcCodec, width: W, height: H, bitrate: 5_000_000, framerate: FPS, latencyMode: 'realtime', avc: { format: 'avc' } });
 
   let audioEncoder = null;
   if (preDecodedAudio) {
@@ -3584,15 +3596,20 @@ async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings
   videoEl.currentTime = clip.start;
   await new Promise(r => videoEl.addEventListener('seeked', r, { once: true }));
   await videoEl.play().catch(() => {});
+  // 2× no caminho sem template: áudio já pré-decodificado, vídeo pode rodar 2× sem consequência
+  if (preDecodedAudio) videoEl.playbackRate = 2;
 
   await new Promise(resolve => {
-    let fi = 0, done = false;
+    let fi = 0, done = false, lastMT = -1;
     const finish = () => { if (!done) { done = true; resolve(); } };
     videoEl.addEventListener('ended', () => setTimeout(finish, 100), { once: true });
 
     videoEl.requestVideoFrameCallback(function onF(now, meta) {
       if (done) return;
       if (meta.mediaTime >= clip.end + 0.05) { finish(); return; }
+      // Dedup: RVFC mais rápido que source fps → mesmo frame repetido
+      if (Math.abs(meta.mediaTime - lastMT) < 0.001) { videoEl.requestVideoFrameCallback(onF); return; }
+      lastMT = meta.mediaTime;
       ctx.drawImage(videoEl, 0, 0, W, H);
       const useAnim = wordTimings && wordTimings.length &&
         document.getElementById('clipAnimCap') && document.getElementById('clipAnimCap').checked;
@@ -3606,7 +3623,7 @@ async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings
       let vf;
       try {
         vf = new VideoFrame(offCanvas, { timestamp: tsUs, duration: Math.round(1e6 / FPS) });
-        videoEncoder.encode(vf, { keyFrame: fi % 60 === 0 });
+        videoEncoder.encode(vf, { keyFrame: fi % 150 === 0 });
         vf.close();
       } catch (_) { try { if (vf) vf.close(); } catch (__) {} }
       fi++;
