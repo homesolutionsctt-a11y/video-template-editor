@@ -266,6 +266,51 @@ header h1 { font-size: 17px; font-weight: 700; }
 .score-num.mid { color:var(--yellow); }
 .score-num.lo  { color:var(--red); }
 
+/* ── Brand Kit ── */
+.bk-logo-drop {
+  border: 2px dashed var(--border); border-radius: 8px;
+  padding: 9px; text-align: center; cursor: pointer;
+  color: var(--muted); font-size: 11px; transition: all .2s; margin-top: 7px;
+}
+.bk-logo-drop:hover, .bk-logo-drop.over { border-color: var(--accent); color: var(--text); }
+.bk-logo-loaded { font-size: 11px; color: var(--green); margin-top: 4px; }
+.bk-pos-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 4px; margin-top: 6px;
+}
+.bk-pos-btn {
+  padding: 5px 4px; border-radius: 6px; font-size: 10px; font-weight: 600;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--muted); cursor: pointer; transition: all .15s; text-align: center;
+}
+.bk-pos-btn:hover { color: var(--text); border-color: #3a3d4e; }
+.bk-pos-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ── Platform presets ── */
+.plat-row {
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: 5px; margin-top: 7px;
+}
+.plat-btn {
+  padding: 7px 4px; border-radius: 7px; font-size: 11px; font-weight: 600;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--muted); cursor: pointer; transition: all .15s; text-align: center;
+  line-height: 1.3;
+}
+.plat-btn:hover { color: var(--text); border-color: #3a3d4e; }
+.plat-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.plat-btn small { display: block; font-size: 9px; opacity: .75; }
+
+/* ── Thumbnail button ── */
+.btn-thumb {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
+  background: rgba(108,99,255,.1); color: var(--accent);
+  border: 1px solid rgba(108,99,255,.22); cursor: pointer; transition: background .15s;
+  title: "Capturar thumbnail";
+}
+.btn-thumb:hover { background: rgba(108,99,255,.25); }
+
 /* ── Toggle switch ── */
 .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
 .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
@@ -693,6 +738,48 @@ header h1 { font-size: 17px; font-weight: 700; }
             </div>
           </div>
 
+          <!-- ── Brand Kit ── -->
+          <div class="leg-panel" style="margin-bottom:10px">
+            <div class="leg-row">
+              <div>
+                <div class="leg-label">&#127991; Brand Kit</div>
+                <div class="leg-sub">Logo / marca d&#39;&#225;gua no v&#237;deo</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="bkEnable" onchange="onBkToggle(this.checked)">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div id="bkSettings" style="display:none;margin-top:8px">
+              <div class="bk-logo-drop" id="bkLogoDrop" onclick="document.getElementById('bkLogoInput').click()">
+                Arraste PNG/SVG ou clique para selecionar
+                <input type="file" id="bkLogoInput" accept="image/png,image/svg+xml,image/webp,image/jpeg" style="display:none">
+              </div>
+              <div class="bk-logo-loaded" id="bkLogoLoaded" style="display:none"></div>
+              <div style="margin-top:8px">
+                <label style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Posi&#231;&#227;o</label>
+                <div class="bk-pos-grid">
+                  <button class="bk-pos-btn" data-pos="tl" onclick="setBkPos('tl',this)">&#8598; TL</button>
+                  <button class="bk-pos-btn" data-pos="tc" onclick="setBkPos('tc',this)">&#8593; Top</button>
+                  <button class="bk-pos-btn active" data-pos="tr" onclick="setBkPos('tr',this)">&#8599; TR</button>
+                  <button class="bk-pos-btn" data-pos="bl" onclick="setBkPos('bl',this)">&#8601; BL</button>
+                  <button class="bk-pos-btn" data-pos="bc" onclick="setBkPos('bc',this)">&#8595; Bot</button>
+                  <button class="bk-pos-btn" data-pos="br" onclick="setBkPos('br',this)">&#8600; BR</button>
+                </div>
+              </div>
+              <div class="field-row" style="margin-top:7px">
+                <div class="field">
+                  <label>Tamanho (%)</label>
+                  <input type="number" id="bkSize" value="15" min="5" max="40" step="1">
+                </div>
+                <div class="field">
+                  <label>Opacidade (%)</label>
+                  <input type="number" id="bkOpacity" value="80" min="10" max="100" step="5">
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="vlist" id="procList"></div>
           <div class="prog-wrap" id="progWrap" style="display:none">
             <div class="prog-bar" id="progBar"></div>
@@ -875,6 +962,41 @@ header h1 { font-size: 17px; font-weight: 700; }
         </div>
       </div>
 
+      <div class="slabel" style="margin-top:14px">Formato de sa&#237;da</div>
+      <div class="plat-row">
+        <button class="plat-btn active" onclick="setClipPlat('original',this)">Original<small>nativo</small></button>
+        <button class="plat-btn" onclick="setClipPlat('9x16',this)">9:16<small>TikTok/Reels</small></button>
+        <button class="plat-btn" onclick="setClipPlat('16x9',this)">16:9<small>YouTube</small></button>
+        <button class="plat-btn" onclick="setClipPlat('1x1',this)">1:1<small>Square</small></button>
+      </div>
+      <input type="hidden" id="clipPlatform" value="original">
+
+      <div class="slabel" style="margin-top:12px">Brand Kit</div>
+      <div class="leg-panel" style="padding:10px 12px">
+        <div class="leg-row">
+          <div>
+            <div class="leg-label">&#127991; Logo nos cortes</div>
+            <div class="leg-sub" id="clipBkStatus">Carregue logo no Editor &rarr; Step 4</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="clipBkEnable">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div style="margin-top:7px">
+          <div class="field">
+            <label>Posi&#231;&#227;o nos cortes</label>
+            <select id="clipBkPos" style="width:100%;background:var(--card);border:1px solid var(--border);color:var(--text);padding:6px 9px;border-radius:6px;font-size:12px">
+              <option value="tr">&#8599; Superior Direito</option>
+              <option value="tl">&#8598; Superior Esquerdo</option>
+              <option value="br">&#8600; Inferior Direito</option>
+              <option value="bl">&#8601; Inferior Esquerdo</option>
+              <option value="tc">&#8593; Centro Superior</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
       <div class="slabel" style="margin-top:14px">Velocidade de exportação</div>
       <select id="clipSpeed" style="width:100%;padding:7px 10px;border-radius:7px;border:1px solid var(--border);background:var(--bg2);color:var(--fg);font-size:13px">
         <option value="2">Normal — 2× (qualidade total)</option>
@@ -938,6 +1060,40 @@ const S = {
   videos: [],
   step: 1
 };
+
+// ── Brand Kit state ───────────────────────────────────────────────────────────
+const BK = { img: null, pos: 'tr', name: '' };
+
+function onBkToggle(checked) {
+  document.getElementById('bkSettings').style.display = checked ? 'block' : 'none';
+}
+
+function setBkPos(pos, btn) {
+  BK.pos = pos;
+  document.querySelectorAll('.bk-pos-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function setClipPlat(plat, btn) {
+  document.getElementById('clipPlatform').value = plat;
+  document.querySelectorAll('.plat-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function loadBkLogo(file) {
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    BK.img  = img;
+    BK.name = file.name;
+    const el = document.getElementById('bkLogoLoaded');
+    if (el) { el.style.display = 'block'; el.textContent = '✓ ' + file.name; }
+    const st = document.getElementById('clipBkStatus');
+    if (st) st.textContent = '✓ ' + file.name + ' carregado';
+  };
+  img.onerror = () => URL.revokeObjectURL(url);
+  img.src = url;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EDITOR CANVAS (safe zone drag/resize)
@@ -1496,6 +1652,15 @@ async function processOne(vid, subtitles = null, keepSegs = null, preDecodedAudi
         }
       }
 
+      // ── Brand Kit ──
+      if (document.getElementById('bkEnable')?.checked) {
+        drawBrandKit(procCtx, W, H,
+          BK.pos,
+          parseInt(document.getElementById('bkSize')?.value)    || 15,
+          parseInt(document.getElementById('bkOpacity')?.value) || 80
+        );
+      }
+
       // ── Codifica VideoFrame ──
       const tsUs  = keepSegs
         ? Math.round(getOutputTime(meta.mediaTime, keepSegs) * 1_000_000)
@@ -1776,6 +1941,12 @@ function addToGallery(url, name) {
     </div>
     <div class="gcard-info">
       <span class="gcard-name" title="${esc(name)}">${esc(name)}</span>
+      <button class="btn-thumb" onclick="captureThumb('${url}','${esc(name)}')" title="Capturar thumbnail PNG">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+          <path d="M21 15l-5-5L5 21"/>
+        </svg>
+      </button>
       <a class="gcard-dl" href="${url}" download="${esc(name)}" title="Baixar">
         <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <path d="M12 16V4m0 12-4-4m4 4 4-4M4 20h16"/>
@@ -2171,6 +2342,15 @@ function onProviderChange() {
   } catch (_) {}
 }
 
+// Brand Kit — logo upload
+setupDrop('bkLogoDrop', files => {
+  const f = files.find(f => /\.(png|svg|webp|jpg|jpeg)$/i.test(f.name) || f.type.startsWith('image/'));
+  if (f) loadBkLogo(f);
+});
+document.getElementById('bkLogoInput').addEventListener('change', e => {
+  if (e.target.files[0]) loadBkLogo(e.target.files[0]);
+});
+
 // Upload de arquivo .srt / .vtt
 setupDrop('srtDrop', files => {
   const f = files.find(f => /\.(srt|vtt)$/i.test(f.name));
@@ -2476,6 +2656,70 @@ function drawAnimatedWords(ctx, words, currentTime, W, H, posY, fontSize, hlColo
   ctx.restore();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// BRAND KIT — desenha logo sobre o frame
+// pos: 'tl'|'tc'|'tr'|'bl'|'bc'|'br'
+// sizePct: % da largura do frame   opacityPct: 0-100
+// ─────────────────────────────────────────────────────────────────────────────
+function drawBrandKit(ctx, W, H, pos, sizePct, opacityPct) {
+  if (!BK.img) return;
+  const PAD  = Math.round(W * 0.04);
+  const bkW  = Math.round(W * (sizePct || 15) / 100);
+  const ratio = (BK.img.naturalWidth && BK.img.naturalHeight)
+    ? BK.img.naturalWidth / BK.img.naturalHeight : 1;
+  const bkH  = Math.round(bkW / ratio);
+  const p    = pos || 'tr';
+  const bx   = (p === 'tl' || p === 'bl') ? PAD
+              : (p === 'tr' || p === 'br') ? W - bkW - PAD
+              : (W - bkW) / 2;
+  const by   = (p.startsWith('t')) ? PAD : H - bkH - PAD;
+  ctx.save();
+  ctx.globalAlpha = (opacityPct || 80) / 100;
+  ctx.drawImage(BK.img, bx, by, bkW, bkH);
+  ctx.restore();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COVER CROP — preenche dstW×dstH com src recortando o centro (CSS cover)
+// ─────────────────────────────────────────────────────────────────────────────
+function drawCoverCrop(ctx, src, dstW, dstH, srcW, srcH) {
+  if (!srcW || !srcH) { ctx.drawImage(src, 0, 0, dstW, dstH); return; }
+  const srcR = srcW / srcH;
+  const dstR = dstW / dstH;
+  let sx, sy, sw, sh;
+  if (srcR > dstR) {
+    sh = srcH; sw = srcH * dstR; sy = 0; sx = (srcW - sw) / 2;
+  } else {
+    sw = srcW; sh = srcW / dstR; sx = 0; sy = (srcH - sh) / 2;
+  }
+  ctx.drawImage(src, sx, sy, sw, sh, 0, 0, dstW, dstH);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THUMBNAIL — captura frame a 20% da duração e baixa como PNG
+// ─────────────────────────────────────────────────────────────────────────────
+function captureThumb(videoUrl, name) {
+  const v = document.createElement('video');
+  v.src = videoUrl;
+  v.muted = true;
+  v.crossOrigin = 'anonymous';
+  v.addEventListener('loadedmetadata', () => { v.currentTime = Math.max(0, v.duration * 0.2); }, { once: true });
+  v.addEventListener('seeked', () => {
+    const c = document.createElement('canvas');
+    c.width  = v.videoWidth  || 1080;
+    c.height = v.videoHeight || 1920;
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    c.toBlob(blob => {
+      if (!blob) return;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name.replace(/\.[^.]+$/, '') + '_thumb.png';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }, 'image/png');
+    v.src = '';
+  }, { once: true });
+}
+
 function setupDrop(id, cb) {
   const el = document.getElementById(id);
   el.addEventListener('dragover',  e => { e.preventDefault(); el.classList.add('over'); });
@@ -2539,6 +2783,10 @@ function resetAll() {
   document.getElementById('galleryPanel').style.display = 'none';
   document.getElementById('galleryCount').textContent   = '0 vídeos';
   completedVideos.length = 0;
+
+  // Brand Kit (mantém logo carregado mas desativa o toggle)
+  document.getElementById('bkEnable').checked  = false;
+  document.getElementById('bkSettings').style.display = 'none';
 
   // Remoção de silêncios
   document.getElementById('silEnable').checked = false;
@@ -3634,13 +3882,20 @@ async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings
     const _nCh = preDecodedAudio ? Math.min(preDecodedAudio.numberOfChannels, 2) : 2;
     const _sr  = preDecodedAudio ? preDecodedAudio.sampleRate : 44100;
 
+    // ── Preset de plataforma ──────────────────────────────────────────────────
+    const platPreset = document.getElementById('clipPlatform')?.value || 'original';
+    const [outW, outH] = platPreset === '9x16'  ? [1080, 1920]
+                       : platPreset === '16x9'  ? [1920, 1080]
+                       : platPreset === '1x1'   ? [1080, 1080]
+                       : [W, H];
+
     // Canvas off-screen para composição
-    const offCanvas = new OffscreenCanvas(W, H);
+    const offCanvas = new OffscreenCanvas(outW, outH);
     const ctx = offCanvas.getContext('2d', { alpha: false });
 
     // mp4-muxer
     const target = new ArrayBufferTarget();
-    const muxCfg = { target, video: { codec: 'avc', width: W, height: H }, firstTimestampBehavior: 'offset', fastStart: 'in-memory' };
+    const muxCfg = { target, video: { codec: 'avc', width: outW, height: outH }, firstTimestampBehavior: 'offset', fastStart: 'in-memory' };
     if (preDecodedAudio) muxCfg.audio = { codec: 'aac', numberOfChannels: _nCh, sampleRate: _sr };
     const muxer = new Muxer(muxCfg);
 
@@ -3648,7 +3903,7 @@ async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings
     let vcCodec = null;
     for (const codec of ['avc1.640028', 'avc1.4D4028', 'avc1.42002A']) {
       try {
-        const r = await VideoEncoder.isConfigSupported({ codec, width: W, height: H, bitrate: 5_000_000, framerate: FPS, avc: { format: 'avc' } });
+        const r = await VideoEncoder.isConfigSupported({ codec, width: outW, height: outH, bitrate: 5_000_000, framerate: FPS, avc: { format: 'avc' } });
         if (r.supported) { vcCodec = codec; break; }
       } catch (_) {}
     }
@@ -3658,7 +3913,7 @@ async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings
       output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
       error:  e => { throw new Error('VideoEncoder: ' + e.message); }
     });
-    videoEncoder.configure({ codec: vcCodec, width: W, height: H, bitrate: 5_000_000, framerate: FPS, latencyMode: 'realtime', avc: { format: 'avc' } });
+    videoEncoder.configure({ codec: vcCodec, width: outW, height: outH, bitrate: 5_000_000, framerate: FPS, latencyMode: 'realtime', avc: { format: 'avc' } });
 
     let audioEncoder = null;
     if (preDecodedAudio) {
@@ -3711,16 +3966,25 @@ async function processClipRaw(file, clip, keepSegs, preDecodedAudio, wordTimings
         }
         lastMT = meta.mediaTime;
 
-        // Desenha frame no canvas
-        ctx.drawImage(videoEl, 0, 0, W, H);
+        // Desenha frame no canvas (com smart crop para o formato de saída)
+        drawCoverCrop(ctx, videoEl, outW, outH, W, H);
 
         // Legendas animadas ou nenhuma
         if (wordTimings && wordTimings.length && document.getElementById('clipAnimCap')?.checked) {
           drawAnimatedWords(
-            ctx, wordTimings, meta.mediaTime, W, H,
+            ctx, wordTimings, meta.mediaTime, outW, outH,
             parseInt(document.getElementById('clipPosY')?.value)     || 420,
             parseInt(document.getElementById('clipFontSize')?.value) || 56,
             document.getElementById('clipHlColor')?.value            || '#FFE135'
+          );
+        }
+
+        // Brand Kit
+        if (document.getElementById('clipBkEnable')?.checked) {
+          drawBrandKit(ctx, outW, outH,
+            document.getElementById('clipBkPos')?.value             || BK.pos,
+            parseInt(document.getElementById('bkSize')?.value)      || 15,
+            parseInt(document.getElementById('bkOpacity')?.value)   || 80
           );
         }
 
